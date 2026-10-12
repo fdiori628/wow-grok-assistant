@@ -1,20 +1,20 @@
 -- WoWGrokAssistant
--- Phase 1: pixel strip encoding for outbound messages
--- Scaling uses the same pixel-perfect method as wow-ai / WowGrok:
--- scale = (768 / physicalHeight) / UIParent:GetEffectiveScale()
--- so one UI unit equals one physical pixel.
+-- Phase 1 complete: pixel out + slot in (echo round-trip)
 
 local addonName, addonTable = ...
 local frame = CreateFrame("Frame")
 
 WoWGrokAssistantDB = WoWGrokAssistantDB or {}
 local nextId = (WoWGrokAssistantDB.nextId or 1)
+local pendingId = nil
+local nextSlot = 1
+local NUM_SLOTS = 20
+local pollTimer = nil
 
 local function Print(msg)
     DEFAULT_CHAT_FRAME:AddMessage("|cFF00AAFF[WoWGrok]|r " .. tostring(msg))
 end
 
--- Pixel strip constants (must match bridge/capture.ps1)
 local CELL = 4
 local CELLS_PER_ROW = 200
 local MAX_ROWS = 48
@@ -25,16 +25,14 @@ local cellTextures = {}
 local function GetPixelPerfectScale()
     local _, physicalHeight = GetPhysicalScreenSize()
     if not physicalHeight or physicalHeight <= 0 then
-        physicalHeight = 1080 -- safe fallback
+        physicalHeight = 1080
     end
     local uiScale = UIParent:GetEffectiveScale() or 1
-    -- One UI unit == one physical pixel
     return (768 / physicalHeight) / uiScale
 end
 
 local function EnsureStrip()
     if stripFrame then
-        -- Refresh scale in case resolution or UI scale changed
         stripFrame:SetScale(GetPixelPerfectScale())
         return
     end
@@ -60,10 +58,9 @@ end
 
 local function DrawStrip(cells)
     EnsureStrip()
-    local n = #cells
     for i = 1, #cellTextures do
         local t = cellTextures[i]
-        if i <= n then
+        if i <= #cells then
             local r, g, b = WoWGrok_Codec.CellColor(cells[i])
             t:SetColorTexture(r, g, b, 1)
             t:Show()
@@ -72,13 +69,54 @@ local function DrawStrip(cells)
         end
     end
     stripFrame:Show()
-    Print("Pixel strip drawn (" .. n .. " cells, pixel-perfect scale). Keep windowed or borderless mode.")
 end
 
 local function HideStrip()
-    if stripFrame then
-        stripFrame:Hide()
+    if stripFrame then stripFrame:Hide() end
+end
+
+local function ProcessSlotData()
+    local data = WoWGrok_SlotData
+    if type(data) ~= "table" or type(data.replies) ~= "table" then return end
+    for _, reply in ipairs(data.replies) do
+        if reply.id == pendingId and reply.status == "done" then
+            Print("Reply id=" .. reply.id .. ": " .. (reply.text or ""))
+            pendingId = nil
+            HideStrip()
+            if pollTimer then
+                pollTimer:Cancel()
+                pollTimer = nil
+            end
+            return true
+        end
     end
+    return false
+end
+
+local function PollSlot()
+    if not pendingId then return end
+    local name = string.format("WoWGrok_S%03d", nextSlot)
+    nextSlot = nextSlot % NUM_SLOTS + 1
+    local ok = C_AddOns and C_AddOns.LoadAddOn(name)
+    if ok then
+        ProcessSlotData()
+    end
+end
+
+local function StartPolling()
+    if pollTimer then pollTimer:Cancel() end
+    -- Poll a few times with increasing delay
+    local delays = {0.5, 1, 2, 3, 5, 8}
+    local idx = 1
+    local function scheduleNext()
+        if not pendingId or idx > #delays then return end
+        pollTimer = C_Timer.NewTimer(delays[idx], function()
+            PollSlot()
+            idx = idx + 1
+            scheduleNext()
+        end)
+    end
+    scheduleNext()
 end
 
 SLASH_WOWGROK1 = "/grok"
@@ -87,13 +125,12 @@ SlashCmdList["WOWGROK"] = function(msg)
     msg = msg and strtrim(msg) or ""
     if msg == "" or msg == "hide" then
         HideStrip()
-        Print("Strip hidden. Type /grok <text> to send a message.")
+        pendingId = nil
+        Print("Strip hidden.")
         return
     end
     if msg == "status" then
-        Print("Next message id: " .. nextId)
-        local _, ph = GetPhysicalScreenSize()
-        Print(string.format("Physical height: %s, scale: %.6f", tostring(ph), GetPixelPerfectScale()))
+        Print("Next id: " .. nextId .. " pending: " .. tostring(pendingId))
         return
     end
 
@@ -102,8 +139,10 @@ SlashCmdList["WOWGROK"] = function(msg)
         Print("Encode failed: " .. tostring(err))
         return
     end
+    pendingId = nextId
     DrawStrip(cells)
-    Print("Sent id=" .. nextId .. ". Bridge should decode this if capture is running.")
+    Print("Sent id=" .. nextId .. ". Waiting for echo reply...")
+    StartPolling()
     nextId = nextId + 1
     WoWGrokAssistantDB.nextId = nextId
 end
@@ -113,10 +152,8 @@ frame:RegisterEvent("DISPLAY_SIZE_CHANGED")
 frame:RegisterEvent("UI_SCALE_CHANGED")
 frame:SetScript("OnEvent", function(self, event)
     if event == "PLAYER_LOGIN" then
-        Print("Loaded. Type /grok <message> to draw the pixel strip.")
-        Print("Requires windowed/borderless mode + running bridge capture.")
+        Print("Loaded (Phase 1 round-trip). Type /grok <message>")
     elseif stripFrame then
-        -- Keep scale accurate after resolution or UI scale changes
         stripFrame:SetScale(GetPixelPerfectScale())
     end
 end)

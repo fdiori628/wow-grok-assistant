@@ -1,55 +1,48 @@
-# Phase 1: Pixel Encoding & Screen Capture Decoding
+# Phase 1: Full Round-Trip (Pixel Out + Slot In)
 
 ## What was implemented
 
-### Addon side
-- `addon/WoWGrokAssistant/Codec.lua`  
-  Pure-Lua encoder: magic `0xC7 0x1A`, 16-bit id, 16-bit length, payload, Fletcher-16 checksum.  
-  Bytes packed MSB-first into 3-bit cells (R/G/B fully on/off).
+### Outbound (addon → bridge)
+- Pixel strip encoding + pixel-perfect drawing (already done)
 
-- `addon/WoWGrokAssistant/WoWGrokAssistant.lua`  
-  On `/grok <text>` it encodes the message and draws a 4×4-pixel cell strip in the top-left corner of the UI.  
-  `/grok hide` hides the strip.  
-  Message ids are persisted in SavedVariables.
+### Inbound (bridge → addon)
+- `bridge/setup-slots.js` generates LoadOnDemand slot addons (`WoWGrok_S001` …)
+- Bridge writes the same echo reply into every slot's `Inbox.lua`
+- Addon polls by calling `C_AddOns.LoadAddOn` on unused slots and looks for a matching `id` in `WoWGrok_SlotData.replies`
+- On match, prints the reply in chat and hides the strip
 
-  **Pixel-perfect scaling** (same method as wow-ai / WowGrok):
-  ```lua
-  scale = (768 / physicalHeight) / UIParent:GetEffectiveScale()
-  ```
-  One UI unit equals one physical pixel. Scale is refreshed on `DISPLAY_SIZE_CHANGED` and `UI_SCALE_CHANGED`.
+## Setup (required once)
 
-### Bridge side
-- `bridge/capture.ps1`  
-  Windows PowerShell script that finds the `Wow` process, captures the top-left client area, samples cell centers, and emits JSON lines with `{id, text}` (or info/warn).
-
-- `bridge/bridge.js`  
-  Spawns `capture.ps1` and pretty-prints decoded messages.
-
-## How to test
-
-1. Copy the `addon/WoWGrokAssistant` folder into your retail `Interface/AddOns/`.
-2. Restart WoW (or `/reload` after first install), enable the addon.
-3. Set the game to **windowed** or **borderless windowed** (exclusive fullscreen will not work).
-4. In a terminal inside the `bridge/` folder:
+1. Generate the slot addons **before** starting the client (or fully restart after copying):
    ```bash
-   node bridge.js
+   node bridge/setup-slots.js --addons "C:\\Program Files (x86)\\World of Warcraft\\_retail_\\Interface\\AddOns" --slots 20
    ```
-5. In game type:
+2. Fully quit and relaunch WoW so it discovers the new slot addons.
+3. On the AddOns screen, leave the `WoWGrok_S###` entries enabled.
+4. Set the environment variable (or edit the default in `bridge.js`):
+   ```bash
+   set WOW_ADDONS=C:\\Program Files (x86)\\World of Warcraft\\_retail_\\Interface\\AddOns
+   ```
+
+## Test the round-trip
+
+1. Start the bridge:
+   ```bash
+   node bridge/bridge.js
+   ```
+2. In game (windowed/borderless):
    ```
    /grok hello world
    ```
-6. The bridge should print something like:
-   ```
-   [decoded] id=1 text="hello world"
-   ```
+3. Expected:
+   - Bridge prints `[decoded] id=N text="hello world"` then `[slots] wrote echo reply...`
+   - Shortly after, the addon prints `Reply id=N: echo: hello world` and hides the strip.
 
-You can also type `/grok status` to see the current physical height and computed scale.
+## Notes
 
-## Notes / Limitations (Phase 1)
+- Slot files must exist at client launch (WoW only discovers addon files at startup).
+- Each slot can be loaded only once per UI session. The bridge writes to all of them so any unused slot works.
+- Signals (WAV) are not yet implemented; polling is used instead. This is sufficient for Phase 1.
+- Echo mode only — no real Grok call yet.
 
-- Windows only for the capture script (Linux/macOS later).
-- Pixel strip uses the standard WoW pixel-perfect scale (`768 / physicalHeight`). This should align correctly on most resolutions and UI scales.
-- No ACK, no slot pool, no Grok call yet — this is only the outbound pixel channel.
-- Strip stays visible until you `/grok hide`.
-
-Next phases will add the inbound slot pool and the actual Grok integration.
+Next: Phase 2 (Grok CLI / API integration + character context).
