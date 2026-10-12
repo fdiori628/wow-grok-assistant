@@ -1,5 +1,8 @@
 -- WoWGrokAssistant
 -- Phase 1: pixel strip encoding for outbound messages
+-- Scaling uses the same pixel-perfect method as wow-ai / WowGrok:
+-- scale = (768 / physicalHeight) / UIParent:GetEffectiveScale()
+-- so one UI unit equals one physical pixel.
 
 local addonName, addonTable = ...
 local frame = CreateFrame("Frame")
@@ -19,16 +22,28 @@ local MAX_ROWS = 48
 local stripFrame = nil
 local cellTextures = {}
 
+local function GetPixelPerfectScale()
+    local _, physicalHeight = GetPhysicalScreenSize()
+    if not physicalHeight or physicalHeight <= 0 then
+        physicalHeight = 1080 -- safe fallback
+    end
+    local uiScale = UIParent:GetEffectiveScale() or 1
+    -- One UI unit == one physical pixel
+    return (768 / physicalHeight) / uiScale
+end
+
 local function EnsureStrip()
-    if stripFrame then return end
+    if stripFrame then
+        -- Refresh scale in case resolution or UI scale changed
+        stripFrame:SetScale(GetPixelPerfectScale())
+        return
+    end
     stripFrame = CreateFrame("Frame", nil, UIParent)
     stripFrame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 0, 0)
     stripFrame:SetSize(CELLS_PER_ROW * CELL, MAX_ROWS * CELL)
     stripFrame:SetFrameStrata("TOOLTIP")
     stripFrame:SetFrameLevel(1000)
-    -- Approximate scale so one UI unit ~ one physical pixel
-    local scale = 1 / (UIParent:GetEffectiveScale() or 1)
-    stripFrame:SetScale(scale)
+    stripFrame:SetScale(GetPixelPerfectScale())
 
     for i = 1, CELLS_PER_ROW * MAX_ROWS do
         local t = stripFrame:CreateTexture(nil, "OVERLAY")
@@ -57,7 +72,7 @@ local function DrawStrip(cells)
         end
     end
     stripFrame:Show()
-    Print("Pixel strip drawn (" .. n .. " cells). Keep windowed or borderless mode.")
+    Print("Pixel strip drawn (" .. n .. " cells, pixel-perfect scale). Keep windowed or borderless mode.")
 end
 
 local function HideStrip()
@@ -77,6 +92,8 @@ SlashCmdList["WOWGROK"] = function(msg)
     end
     if msg == "status" then
         Print("Next message id: " .. nextId)
+        local _, ph = GetPhysicalScreenSize()
+        Print(string.format("Physical height: %s, scale: %.6f", tostring(ph), GetPixelPerfectScale()))
         return
     end
 
@@ -92,9 +109,14 @@ SlashCmdList["WOWGROK"] = function(msg)
 end
 
 frame:RegisterEvent("PLAYER_LOGIN")
+frame:RegisterEvent("DISPLAY_SIZE_CHANGED")
+frame:RegisterEvent("UI_SCALE_CHANGED")
 frame:SetScript("OnEvent", function(self, event)
     if event == "PLAYER_LOGIN" then
         Print("Loaded. Type /grok <message> to draw the pixel strip.")
         Print("Requires windowed/borderless mode + running bridge capture.")
+    elseif stripFrame then
+        -- Keep scale accurate after resolution or UI scale changes
+        stripFrame:SetScale(GetPixelPerfectScale())
     end
 end)
