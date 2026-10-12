@@ -1,0 +1,29 @@
+# Roadmap
+
+## Phase 0 — Skeleton (current)
+- [x] Repository structure
+- [x] Basic addon .toc + slash command
+- [x] Architecture document
+
+## Phase 1 — Communication
+- [ ] Pixel strip encoder in the addon
+- [ ] Slot pool generation + writer in the bridge
+- [ ] Screen capture (Windows first)
+- [ ] Basic round-trip: send message → receive echo
+
+## Phase 2 — Grok Integration
+- [ ] Grok CLI backend (`grok login` + headless)
+- [ ] Optional API key backend
+- [ ] Character context collection (gear, quests, weekly, zone)
+- [ ] In-game chat UI
+
+## Phase 3 — Useful Features
+- [ ] Weekly activity monitor / reminders
+- [ ] Gear upgrade suggestions
+- [ ] Persistent per-character notes
+- [ ] Map / route helpers (if feasible under 12.1 restrictions)
+
+## Notes
+- Primary target: retail 12.1 (Interface 120100)
+- Windowed / borderless mode required for capture
+- Keep the design ToS-friendly (documented APIs only)

@@ -1,0 +1,13 @@
+{
+  "name": "wow-grok-assistant-bridge",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Bridge process for WoW Grok Assistant (retail 12.1)",
+  "main": "bridge.js",
+  "scripts": {
+    "start": "node bridge.js"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}

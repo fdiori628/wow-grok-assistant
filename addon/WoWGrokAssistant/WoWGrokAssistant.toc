@@ -1,0 +1,8 @@
+## Interface: 120100
+## Title: WoW Grok Assistant
+## Notes: In-game Grok AI assistant (retail 12.1). Requires external bridge.
+## Author: fdiori628
+## Version: 0.0.1
+## SavedVariables: WoWGrokAssistantDB
+
+WoWGrokAssistant.lua
