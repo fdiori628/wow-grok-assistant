@@ -37,12 +37,23 @@ function Emit($obj) {
 }
 
 function CellValue($bmp, [int]$c, [int]$r) {
-  $px = $bmp.GetPixel($c * $Cell + [int]($Cell / 2), $r * $Cell + [int]($Cell / 2))
-  $v = 0
-  if ($px.R -ge 128) { $v += 4 }
-  if ($px.G -ge 128) { $v += 2 }
-  if ($px.B -ge 128) { $v += 1 }
-  return $v
+  $cx = $c * $Cell + [int]($Cell / 2)
+  $cy = $r * $Cell + [int]($Cell / 2)
+  $best = 0
+  # Sample center and ±1 pixel offsets for high-DPI tolerance
+  foreach ($ox in @(-1, 0, 1)) {
+    foreach ($oy in @(-1, 0, 1)) {
+      $x = [Math]::Max(0, [Math]::Min($bmp.Width - 1, $cx + $ox))
+      $y = [Math]::Max(0, [Math]::Min($bmp.Height - 1, $cy + $oy))
+      $px = $bmp.GetPixel($x, $y)
+      $v = 0
+      if ($px.R -ge 128) { $v += 4 }
+      if ($px.G -ge 128) { $v += 2 }
+      if ($px.B -ge 128) { $v += 1 }
+      if ($v -gt $best) { $best = $v }
+    }
+  }
+  return $best
 }
 
 function Decode($bmp) {
