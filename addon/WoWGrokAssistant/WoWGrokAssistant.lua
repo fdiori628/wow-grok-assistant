@@ -1,5 +1,5 @@
 -- WoWGrokAssistant
--- Phase 2: Grok CLI + basic character context + chat UI
+-- Phase 2+: Enhanced UI + richer character context
 
 local addonName, addonTable = ...
 local frame = CreateFrame("Frame")
@@ -13,24 +13,46 @@ local pollTimer = nil
 local chatFrame = nil
 local messageText = ""
 local scrollChild = nil
+local statusText = nil
 
 local function Print(msg)
     DEFAULT_CHAT_FRAME:AddMessage("|cFF00AAFF[WoWGrok]|r " .. tostring(msg))
 end
 
+local function GetTimestamp()
+    return date("%H:%M")
+end
+
 local function AddMessage(role, text)
-    local prefix = role == "user" and "|cFF88CCFFYou:|r " or "|cFF00AAFFGrok:|r "
-    local line = prefix .. text .. "\n"
+    local prefix
+    if role == "user" then
+        prefix = "|cFF88CCFF[You " .. GetTimestamp() .. "]|r "
+    elseif role == "grok" then
+        prefix = "|cFF00AAFF[Grok " .. GetTimestamp() .. "]|r "
+    else
+        prefix = "|cFFAAAAAA[System]|r "
+    end
+    local line = prefix .. text .. "\n\n"
     messageText = messageText .. line
     if scrollChild then
         scrollChild:SetText(messageText)
-        -- Auto-scroll to bottom roughly
         local sf = scrollChild:GetParent()
-        if sf and sf.ScrollToBottom then
-            sf:ScrollToBottom()
+        if sf then
+            -- Force scroll to bottom
+            C_Timer.After(0.05, function()
+                if sf.ScrollToBottom then sf:ScrollToBottom() end
+            end)
         end
     end
-    Print(prefix .. text)
+    if role ~= "system" then
+        Print(prefix .. text)
+    end
+end
+
+local function SetStatus(text)
+    if statusText then
+        statusText:SetText(text or "")
+    end
 end
 
 local CELL = 4
@@ -103,19 +125,46 @@ local function GetContext()
     tinsert(parts, string.format("Character: %s, Level %s %s", name, level, class or ""))
     tinsert(parts, string.format("Zone: %s%s", zone, sub ~= "" and (" / " .. sub) or ""))
 
+    -- Item level
+    local avg, equipped = GetAverageItemLevel()
+    if avg and equipped then
+        tinsert(parts, string.format("Item Level: %.1f equipped / %.1f overall", equipped, avg))
+    end
+
+    -- Quests
     local numQuests = C_QuestLog and C_QuestLog.GetNumQuestLogEntries and C_QuestLog.GetNumQuestLogEntries() or 0
     tinsert(parts, string.format("Active quests: %d", numQuests))
 
+    -- Weekly rewards (vault / activities)
+    if C_WeeklyRewards and C_WeeklyRewards.GetActivities then
+        local ok, activities = pcall(C_WeeklyRewards.GetActivities)
+        if ok and activities and #activities > 0 then
+            local weekly = {}
+            for _, act in ipairs(activities) do
+                if act.progress and act.threshold then
+                    tinsert(weekly, string.format("%d/%d", act.progress, act.threshold))
+                end
+            end
+            if #weekly > 0 then
+                tinsert(parts, "Weekly progress: " .. table.concat(weekly, ", "))
+            end
+        end
+    end
+
+    -- Gear summary (names only to keep payload smaller)
     local gear = {}
     local slots = {1,2,3,5,6,7,8,9,10,11,12,13,14,15,16,17}
     for _, slot in ipairs(slots) do
         local link = GetInventoryItemLink("player", slot)
         if link then
-            tinsert(gear, link)
+            local name = GetItemInfo(link)
+            if name then
+                tinsert(gear, name)
+            end
         end
     end
     if #gear > 0 then
-        tinsert(parts, "Equipped: " .. table.concat(gear, " "))
+        tinsert(parts, "Equipped: " .. table.concat(gear, ", "))
     end
 
     return table.concat(parts, "\n")
@@ -124,21 +173,24 @@ end
 local function SendMessage(msg)
     if not msg or msg == "" then return end
     AddMessage("user", msg)
+    SetStatus("Sending...")
 
     local context = GetContext()
-    local fullText = "You are an in-game assistant for World of Warcraft (retail).\n" ..
+    local fullText = "You are an in-game assistant for World of Warcraft (retail 12.1).\n" ..
                      "Current player context:\n" .. context .. "\n\n" ..
                      "Player question: " .. msg .. "\n\n" ..
-                     "Answer concisely and helpfully. Focus on WoW advice."
+                     "Answer concisely and helpfully. Focus on WoW advice. Use the context when relevant."
 
     local cells, err = WoWGrok_Codec.Encode(nextId, fullText)
     if not cells then
         AddMessage("system", "Encode failed: " .. tostring(err))
+        SetStatus("Error")
         return
     end
     pendingId = nextId
     DrawStrip(cells)
     AddMessage("system", "Waiting for Grok...")
+    SetStatus("Waiting for Grok...")
     StartPolling()
     nextId = nextId + 1
     WoWGrokAssistantDB.nextId = nextId
@@ -152,6 +204,7 @@ local function ProcessSlotData()
             AddMessage("grok", reply.text or "")
             pendingId = nil
             HideStrip()
+            SetStatus("Ready")
             if pollTimer then
                 pollTimer:Cancel()
                 pollTimer = nil
@@ -191,7 +244,7 @@ local function CreateChatUI()
     if chatFrame then return end
 
     chatFrame = CreateFrame("Frame", "WoWGrokChatFrame", UIParent, "BackdropTemplate")
-    chatFrame:SetSize(420, 320)
+    chatFrame:SetSize(460, 360)
     chatFrame:SetPoint("CENTER")
     chatFrame:SetBackdrop({
         bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
@@ -199,7 +252,7 @@ local function CreateChatUI()
         tile = true, tileSize = 32, edgeSize = 32,
         insets = { left = 11, right = 12, top = 12, bottom = 11 }
     })
-    chatFrame:SetBackdropColor(0, 0, 0, 0.8)
+    chatFrame:SetBackdropColor(0, 0, 0, 0.85)
     chatFrame:SetMovable(true)
     chatFrame:EnableMouse(true)
     chatFrame:RegisterForDrag("LeftButton")
@@ -216,22 +269,37 @@ local function CreateChatUI()
     closeBtn:SetPoint("TOPRIGHT", -4, -4)
     closeBtn:SetScript("OnClick", function() chatFrame:Hide() end)
 
+    local clearBtn = CreateFrame("Button", nil, chatFrame, "UIPanelButtonTemplate")
+    clearBtn:SetSize(60, 20)
+    clearBtn:SetPoint("TOPLEFT", 12, -10)
+    clearBtn:SetText("Clear")
+    clearBtn:SetScript("OnClick", function()
+        messageText = ""
+        if scrollChild then scrollChild:SetText("") end
+        SetStatus("Ready")
+    end)
+
+    statusText = chatFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    statusText:SetPoint("TOPRIGHT", -40, -12)
+    statusText:SetText("Ready")
+    statusText:SetTextColor(0.7, 0.7, 0.7)
+
     local scroll = CreateFrame("ScrollFrame", nil, chatFrame, "UIPanelScrollFrameTemplate")
     scroll:SetPoint("TOPLEFT", 16, -40)
-    scroll:SetPoint("BOTTOMRIGHT", -32, 50)
+    scroll:SetPoint("BOTTOMRIGHT", -32, 55)
 
     scrollChild = CreateFrame("EditBox", nil, scroll)
     scrollChild:SetMultiLine(true)
     scrollChild:SetFontObject(ChatFontNormal)
-    scrollChild:SetWidth(360)
+    scrollChild:SetWidth(380)
     scrollChild:SetAutoFocus(false)
     scrollChild:EnableMouse(false)
     scrollChild:SetText("")
     scroll:SetScrollChild(scrollChild)
 
     local input = CreateFrame("EditBox", nil, chatFrame, "InputBoxTemplate")
-    input:SetSize(340, 22)
-    input:SetPoint("BOTTOMLEFT", 20, 14)
+    input:SetSize(360, 22)
+    input:SetPoint("BOTTOMLEFT", 20, 16)
     input:SetAutoFocus(false)
     input:SetScript("OnEnterPressed", function(self)
         local text = self:GetText()
@@ -278,8 +346,13 @@ SlashCmdList["WOWGROK"] = function(msg)
         AddMessage("system", GetContext())
         return
     end
+    if msg == "clear" then
+        messageText = ""
+        if scrollChild then scrollChild:SetText("") end
+        SetStatus("Ready")
+        return
+    end
 
-    -- Direct send from slash
     SendMessage(msg)
 end
 
