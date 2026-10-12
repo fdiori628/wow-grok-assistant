@@ -13,10 +13,11 @@
 - [x] Basic round-trip: send message → receive echo
 
 ## Phase 2 — Grok Integration
-- [ ] Grok CLI backend (`grok login` + headless)
+- [x] Grok CLI backend (`grok login` + headless)
 - [ ] Optional API key backend
-- [ ] Character context collection (gear, quests, weekly, zone)
+- [x] Character context collection (gear, quests, zone)
 - [ ] In-game chat UI
+- [ ] Session resume / multi-turn
 
 ## Phase 3 — Useful Features
 - [ ] Weekly activity monitor / reminders
