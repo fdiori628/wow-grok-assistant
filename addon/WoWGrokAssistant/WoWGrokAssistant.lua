@@ -16,6 +16,7 @@ local MAX_HISTORY = 20
 local MAX_NOTES = 10
 local MAX_NOTE_LEN = 180
 local MAX_POLL_ATTEMPTS = 12
+local MAX_PAYLOAD = 6000
 local pollTimer = nil
 local pollAttempts = 0
 local failPrints = 0
@@ -282,8 +283,6 @@ local function SendMessage(msg)
         AddMessage("system", "Previous request still pending. Use /grok clear to cancel.")
         return
     end
-    AddMessage("user", msg)
-    SetStatus("Sending...")
 
     local context = GetContext()
     local fullText = "You are an in-game assistant for World of Warcraft (retail 12.1).\n" ..
@@ -291,10 +290,19 @@ local function SendMessage(msg)
                      "Player question: " .. msg .. "\n\n" ..
                      "Answer concisely and helpfully. Focus on WoW advice. Use the context when relevant."
 
+    if #fullText > MAX_PAYLOAD - 50 then
+        AddMessage("system", "Message too long (context + question). Clear notes or shorten the question.")
+        SetStatus("Too long")
+        return
+    end
+
+    AddMessage("user", msg)
+    SetStatus("Sending...")
+
     local cells, err = WoWGrok_Codec.Encode(nextId, fullText)
     if not cells then
-        AddMessage("system", "Message too long for pixel strip. Try a shorter question or clear notes.")
-        SetStatus("Too long")
+        AddMessage("system", "Encode failed: " .. tostring(err))
+        SetStatus("Error")
         return
     end
     pendingId = nextId
@@ -458,12 +466,16 @@ SlashCmdList["WOWGROK"] = function(msg)
         return
     end
     if cmd == "status" then
-        local bridgeHint = "unknown"
+        local bridgeHint = "unknown (no slot yet)"
         if WoWGrok_SlotData and WoWGrok_SlotData.now then
             local age = time() - WoWGrok_SlotData.now
-            bridgeHint = string.format("%ds ago", age)
+            if age < 90 then
+                bridgeHint = string.format("alive (%ds ago)", age)
+            else
+                bridgeHint = string.format("stale (%ds ago)", age)
+            end
         end
-        Print("Next id: " .. nextId .. " pending: " .. tostring(pendingId) .. " polls: " .. pollAttempts .. " | last slot: " .. bridgeHint)
+        Print("Next id: " .. nextId .. " pending: " .. tostring(pendingId) .. " polls: " .. pollAttempts .. " | bridge: " .. bridgeHint)
         return
     end
     if cmd == "debug" then
