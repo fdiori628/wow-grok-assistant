@@ -1,15 +1,18 @@
 -- WoWGrokAssistant
--- Phase 2+3: Enhanced UI, rich context, weekly/gear helpers, notes
+-- Phase 2+3 + robustness fixes
 
 local addonName, addonTable = ...
 local frame = CreateFrame("Frame")
 
 WoWGrokAssistantDB = WoWGrokAssistantDB or {}
 WoWGrokAssistantDB.notes = WoWGrokAssistantDB.notes or {}
+WoWGrokAssistantDB.history = WoWGrokAssistantDB.history or {}
 local nextId = (WoWGrokAssistantDB.nextId or 1)
 local pendingId = nil
 local nextSlot = 1
 local NUM_SLOTS = 20
+local MAX_HISTORY = 20
+local MAX_NOTES = 10
 local pollTimer = nil
 local chatFrame = nil
 local messageText = ""
@@ -30,12 +33,37 @@ local function GetCharKey()
     return name .. "-" .. realm
 end
 
+local function RebuildMessageText()
+    messageText = ""
+    for _, entry in ipairs(WoWGrokAssistantDB.history) do
+        local prefix
+        if entry.role == "user" then
+            prefix = "|cFF88CCFF[You " .. (entry.ts or "") .. "]|r "
+        elseif entry.role == "grok" then
+            prefix = "|cFF00AAFF[Grok " .. (entry.ts or "") .. "]|r "
+        else
+            prefix = "|cFFAAAAAA[System]|r "
+        end
+        messageText = messageText .. prefix .. (entry.text or "") .. "\n\n"
+    end
+    if scrollChild then
+        scrollChild:SetText(messageText)
+    end
+end
+
 local function AddMessage(role, text)
+    local ts = GetTimestamp()
+    local entry = { role = role, text = text, ts = ts }
+    tinsert(WoWGrokAssistantDB.history, entry)
+    while #WoWGrokAssistantDB.history > MAX_HISTORY do
+        tremove(WoWGrokAssistantDB.history, 1)
+    end
+
     local prefix
     if role == "user" then
-        prefix = "|cFF88CCFF[You " .. GetTimestamp() .. "]|r "
+        prefix = "|cFF88CCFF[You " .. ts .. "]|r "
     elseif role == "grok" then
-        prefix = "|cFF00AAFF[Grok " .. GetTimestamp() .. "]|r "
+        prefix = "|cFF00AAFF[Grok " .. ts .. "]|r "
     else
         prefix = "|cFFAAAAAA[System]|r "
     end
@@ -202,7 +230,6 @@ local function GetContext()
         tinsert(parts, "Equipped: " .. table.concat(gear, ", "))
     end
 
-    -- Include notes if any
     local key = GetCharKey()
     local notes = WoWGrokAssistantDB.notes[key]
     if notes and #notes > 0 then
@@ -225,8 +252,8 @@ local function SendMessage(msg)
 
     local cells, err = WoWGrok_Codec.Encode(nextId, fullText)
     if not cells then
-        AddMessage("system", "Encode failed: " .. tostring(err))
-        SetStatus("Error")
+        AddMessage("system", "Message too long for pixel strip. Try a shorter question or clear notes.")
+        SetStatus("Too long")
         return
     end
     pendingId = nextId
@@ -261,9 +288,11 @@ local function PollSlot()
     if not pendingId then return end
     local name = string.format("WoWGrok_S%03d", nextSlot)
     nextSlot = nextSlot % NUM_SLOTS + 1
-    local ok = C_AddOns and C_AddOns.LoadAddOn(name)
+    local ok, reason = C_AddOns and C_AddOns.LoadAddOn(name)
     if ok then
         ProcessSlotData()
+    elseif reason then
+        Print("Slot load failed: " .. tostring(reason))
     end
 end
 
@@ -316,6 +345,7 @@ local function CreateChatUI()
     clearBtn:SetPoint("TOPLEFT", 12, -10)
     clearBtn:SetText("Clear")
     clearBtn:SetScript("OnClick", function()
+        WoWGrokAssistantDB.history = {}
         messageText = ""
         if scrollChild then scrollChild:SetText("") end
         SetStatus("Ready")
@@ -354,6 +384,7 @@ local function CreateChatUI()
     input:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
 
     chatFrame.input = input
+    RebuildMessageText()
 end
 
 local function ToggleChat()
@@ -387,18 +418,24 @@ SlashCmdList["WOWGROK"] = function(msg)
         Print("Next id: " .. nextId .. " pending: " .. tostring(pendingId))
         return
     end
+    if cmd == "debug" then
+        local scale = GetPixelPerfectScale()
+        local hist = #WoWGrokAssistantDB.history
+        Print(string.format("scale=%.4f nextId=%d pending=%s nextSlot=%d history=%d", scale, nextId, tostring(pendingId), nextSlot, hist))
+        return
+    end
     if cmd == "context" then
         AddMessage("system", GetContext())
         return
     end
     if cmd == "clear" then
+        WoWGrokAssistantDB.history = {}
         messageText = ""
         if scrollChild then scrollChild:SetText("") end
         SetStatus("Ready")
         return
     end
 
-    -- Phase 3 commands
     if cmd == "weekly" then
         SendMessage("Summarize my current weekly progress and suggest the highest priority activities I should do this week.")
         return
@@ -413,8 +450,12 @@ SlashCmdList["WOWGROK"] = function(msg)
         local sub, text = rest:match("^(%S+)%s*(.*)$")
         sub = sub and sub:lower() or "list"
         if sub == "add" and text ~= "" then
-            tinsert(WoWGrokAssistantDB.notes[key], text)
-            AddMessage("system", "Note added: " .. text)
+            if #WoWGrokAssistantDB.notes[key] >= MAX_NOTES then
+                AddMessage("system", "Note limit reached (" .. MAX_NOTES .. "). Clear some first.")
+            else
+                tinsert(WoWGrokAssistantDB.notes[key], text)
+                AddMessage("system", "Note added: " .. text)
+            end
         elseif sub == "list" then
             local notes = WoWGrokAssistantDB.notes[key]
             if #notes == 0 then
@@ -431,7 +472,6 @@ SlashCmdList["WOWGROK"] = function(msg)
         return
     end
 
-    -- Default: send as message
     SendMessage(msg)
 end
 
@@ -441,7 +481,7 @@ frame:RegisterEvent("UI_SCALE_CHANGED")
 frame:SetScript("OnEvent", function(self, event)
     if event == "PLAYER_LOGIN" then
         Print("Loaded. Type /grok to open the chat window.")
-        Print("Phase 3: /grok weekly | /grok gear | /grok note add/list/clear")
+        Print("Commands: /grok weekly | gear | note | debug | clear")
         CreateChatUI()
     elseif stripFrame then
         stripFrame:SetScale(GetPixelPerfectScale())
