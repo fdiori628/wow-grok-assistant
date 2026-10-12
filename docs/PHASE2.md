@@ -1,47 +1,38 @@
-# Phase 2: Grok CLI Integration + Character Context
+# Phase 2: Grok CLI Integration + Character Context + Chat UI
 
 ## What was implemented
 
 ### Character context (addon)
-- `GetContext()` collects:
-  - Character name, level, class
-  - Current zone / subzone
-  - Number of active quests (`C_QuestLog.GetNumQuestLogEntries`)
-  - Equipped item links for main slots
-- On `/grok <message>`, the addon builds a full prompt that includes this context + the player question.
-- `/grok context` prints the raw context for debugging.
+- `GetContext()` collects character name/level/class, zone, quest count, and equipped item links.
+- Prompts automatically include this context.
 
 ### Grok CLI (bridge)
-- On decoded message, the bridge runs:
-  ```bash
-  grok -p "<full prompt>" --output-format json --no-auto-update
-  ```
-- Parses the JSON reply (or falls back to raw stdout).
-- Writes the real Grok reply into the slot pool (same as Phase 1).
+- Calls `grok -p "..." --output-format json` and writes the reply to the slot pool.
+
+### In-game Chat UI
+- Movable window with title bar, scrollable message area, and input box.
+- `/grok` (no args) toggles the window.
+- Type in the input box and press Enter to send.
+- User messages and Grok replies appear in the window (and also print to chat).
+- `/grok <message>` still works as a direct send.
 
 ## Requirements
 
-1. Grok CLI installed and logged in:
-   ```bash
-   grok login
-   # or set XAI_API_KEY
-   ```
-2. `grok` must be in PATH when the bridge runs.
-3. Slot addons already generated (from Phase 1).
-4. Game in windowed / borderless mode.
+1. Grok CLI installed and logged in (`grok login` or `XAI_API_KEY`).
+2. `grok` in PATH.
+3. Slot addons generated (Phase 1).
+4. Windowed / borderless mode.
 
 ## Test
 
 1. Start bridge: `node bridge/bridge.js`
-2. In game: `/grok what should I do this week?`
-3. Expected: Bridge calls Grok, then addon prints the reply.
+2. In game: `/grok` to open the window.
+3. Type a question and press Enter.
+4. Expected: Message appears in the window, bridge calls Grok, reply appears in the window.
 
 ## Notes / Next steps
 
-- Context is still basic (no full weekly checklist, no detailed gear scoring).
-- No session resume yet (`--resume`).
-- No in-game chat window (still uses chat print + pixel strip).
+- UI is basic (no history persistence, no rich formatting).
+- No session resume yet.
+- Context can still be enriched (weekly activities, gear scoring, etc.).
 - Optional API key backend can be added later.
-- For longer conversations, we should implement proper session IDs and multi-turn.
-
-This completes the core of Phase 2. UI and richer context can follow.
