@@ -1,6 +1,7 @@
 # Screen-captures the top-left corner of the WoW client window and decodes the
 # WoWGrokAssistant pixel strip (see addon/WoWGrokAssistant/Codec.lua).
 # Prints one JSON line per new message to stdout.
+# Requires two consecutive identical decodes before emitting.
 #
 # Usage:
 #   .\capture.ps1
@@ -114,6 +115,8 @@ $lastWarn = [DateTime]::MinValue
 $proc = $null
 $w = $Cells * $Cell
 $h = $MaxRows * $Cell
+$prevKey = ""
+$stableCount = 0
 while ($true) {
   if (-not $proc -or $proc.HasExited) {
     $proc = Get-Process $ProcessName -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
@@ -140,12 +143,24 @@ while ($true) {
         $lastWarn = [DateTime]::Now
         Emit @{ warn = "strip seen but rejected: $($msg.error)" }
       }
+      $prevKey = ""
+      $stableCount = 0
     } elseif ($msg) {
       $key = "$($msg.id):$($msg.text)"
-      if ($key -ne $lastKey) {
+      if ($key -eq $prevKey) {
+        $stableCount++
+      } else {
+        $prevKey = $key
+        $stableCount = 1
+      }
+      if ($stableCount -ge 2 -and $key -ne $lastKey) {
         $lastKey = $key
         Emit $msg
+        $stableCount = 0
       }
+    } else {
+      $prevKey = ""
+      $stableCount = 0
     }
   }
   $bmp.Dispose()
