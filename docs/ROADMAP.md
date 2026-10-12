@@ -24,6 +24,7 @@
 - [x] Gear upgrade suggestions (`/grok gear`)
 - [x] Persistent per-character notes (`/grok note`)
 - [x] Basic map/route helper (`/grok map`, zone-based)
+- [x] Profession advice (`/grok profession`)
 
 ## Robustness (post-review)
 - [x] Single-slot reply writes (no overwrite races)
@@ -35,6 +36,12 @@
 - [x] Notes length limit
 - [x] Raised MAX_PAYLOAD to 6000
 - [x] Weekly progress by type (M+ / Raid / World)
+- [x] Serialized Slot writes (concurrency lock)
+- [x] Majority-vote pixel sampling
+- [x] Clear/hide cancels pending requests
+- [x] Polling attempt limit (auto-cancel)
+- [x] Safer reward hyperlink extraction
+- [x] DB version field
 
 ## Notes
 - Primary target: retail 12.1 (Interface 120100)
