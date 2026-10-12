@@ -1,5 +1,5 @@
 -- WoWGrokAssistant
--- Phase 2: Grok CLI + basic character context
+-- Phase 2: Grok CLI + basic character context + chat UI
 
 local addonName, addonTable = ...
 local frame = CreateFrame("Frame")
@@ -10,9 +10,27 @@ local pendingId = nil
 local nextSlot = 1
 local NUM_SLOTS = 20
 local pollTimer = nil
+local chatFrame = nil
+local messageText = ""
+local scrollChild = nil
 
 local function Print(msg)
     DEFAULT_CHAT_FRAME:AddMessage("|cFF00AAFF[WoWGrok]|r " .. tostring(msg))
+end
+
+local function AddMessage(role, text)
+    local prefix = role == "user" and "|cFF88CCFFYou:|r " or "|cFF00AAFFGrok:|r "
+    local line = prefix .. text .. "\n"
+    messageText = messageText .. line
+    if scrollChild then
+        scrollChild:SetText(messageText)
+        -- Auto-scroll to bottom roughly
+        local sf = scrollChild:GetParent()
+        if sf and sf.ScrollToBottom then
+            sf:ScrollToBottom()
+        end
+    end
+    Print(prefix .. text)
 end
 
 local CELL = 4
@@ -75,7 +93,6 @@ local function HideStrip()
     if stripFrame then stripFrame:Hide() end
 end
 
--- Basic character context (safe APIs for retail 12.1)
 local function GetContext()
     local parts = {}
     local name = UnitName("player") or "?"
@@ -86,13 +103,11 @@ local function GetContext()
     tinsert(parts, string.format("Character: %s, Level %s %s", name, level, class or ""))
     tinsert(parts, string.format("Zone: %s%s", zone, sub ~= "" and (" / " .. sub) or ""))
 
-    -- Quest count
     local numQuests = C_QuestLog and C_QuestLog.GetNumQuestLogEntries and C_QuestLog.GetNumQuestLogEntries() or 0
     tinsert(parts, string.format("Active quests: %d", numQuests))
 
-    -- Simple gear summary (item links for main slots)
     local gear = {}
-    local slots = {1,2,3,5,6,7,8,9,10,11,12,13,14,15,16,17} -- head to offhand roughly
+    local slots = {1,2,3,5,6,7,8,9,10,11,12,13,14,15,16,17}
     for _, slot in ipairs(slots) do
         local link = GetInventoryItemLink("player", slot)
         if link then
@@ -106,12 +121,35 @@ local function GetContext()
     return table.concat(parts, "\n")
 end
 
+local function SendMessage(msg)
+    if not msg or msg == "" then return end
+    AddMessage("user", msg)
+
+    local context = GetContext()
+    local fullText = "You are an in-game assistant for World of Warcraft (retail).\n" ..
+                     "Current player context:\n" .. context .. "\n\n" ..
+                     "Player question: " .. msg .. "\n\n" ..
+                     "Answer concisely and helpfully. Focus on WoW advice."
+
+    local cells, err = WoWGrok_Codec.Encode(nextId, fullText)
+    if not cells then
+        AddMessage("system", "Encode failed: " .. tostring(err))
+        return
+    end
+    pendingId = nextId
+    DrawStrip(cells)
+    AddMessage("system", "Waiting for Grok...")
+    StartPolling()
+    nextId = nextId + 1
+    WoWGrokAssistantDB.nextId = nextId
+end
+
 local function ProcessSlotData()
     local data = WoWGrok_SlotData
     if type(data) ~= "table" or type(data.replies) ~= "table" then return end
     for _, reply in ipairs(data.replies) do
         if reply.id == pendingId and reply.status == "done" then
-            Print("Reply id=" .. reply.id .. ": " .. (reply.text or ""))
+            AddMessage("grok", reply.text or "")
             pendingId = nil
             HideStrip()
             if pollTimer then
@@ -149,14 +187,87 @@ local function StartPolling()
     scheduleNext()
 end
 
+local function CreateChatUI()
+    if chatFrame then return end
+
+    chatFrame = CreateFrame("Frame", "WoWGrokChatFrame", UIParent, "BackdropTemplate")
+    chatFrame:SetSize(420, 320)
+    chatFrame:SetPoint("CENTER")
+    chatFrame:SetBackdrop({
+        bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+        edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+        tile = true, tileSize = 32, edgeSize = 32,
+        insets = { left = 11, right = 12, top = 12, bottom = 11 }
+    })
+    chatFrame:SetBackdropColor(0, 0, 0, 0.8)
+    chatFrame:SetMovable(true)
+    chatFrame:EnableMouse(true)
+    chatFrame:RegisterForDrag("LeftButton")
+    chatFrame:SetScript("OnDragStart", chatFrame.StartMoving)
+    chatFrame:SetScript("OnDragStop", chatFrame.StopMovingOrSizing)
+    chatFrame:SetClampedToScreen(true)
+    chatFrame:Hide()
+
+    local title = chatFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    title:SetPoint("TOP", 0, -12)
+    title:SetText("WoW Grok Assistant")
+
+    local closeBtn = CreateFrame("Button", nil, chatFrame, "UIPanelCloseButton")
+    closeBtn:SetPoint("TOPRIGHT", -4, -4)
+    closeBtn:SetScript("OnClick", function() chatFrame:Hide() end)
+
+    local scroll = CreateFrame("ScrollFrame", nil, chatFrame, "UIPanelScrollFrameTemplate")
+    scroll:SetPoint("TOPLEFT", 16, -40)
+    scroll:SetPoint("BOTTOMRIGHT", -32, 50)
+
+    scrollChild = CreateFrame("EditBox", nil, scroll)
+    scrollChild:SetMultiLine(true)
+    scrollChild:SetFontObject(ChatFontNormal)
+    scrollChild:SetWidth(360)
+    scrollChild:SetAutoFocus(false)
+    scrollChild:EnableMouse(false)
+    scrollChild:SetText("")
+    scroll:SetScrollChild(scrollChild)
+
+    local input = CreateFrame("EditBox", nil, chatFrame, "InputBoxTemplate")
+    input:SetSize(340, 22)
+    input:SetPoint("BOTTOMLEFT", 20, 14)
+    input:SetAutoFocus(false)
+    input:SetScript("OnEnterPressed", function(self)
+        local text = self:GetText()
+        if text and text ~= "" then
+            SendMessage(text)
+            self:SetText("")
+            self:ClearFocus()
+        end
+    end)
+    input:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+
+    chatFrame.input = input
+end
+
+local function ToggleChat()
+    CreateChatUI()
+    if chatFrame:IsShown() then
+        chatFrame:Hide()
+    else
+        chatFrame:Show()
+        chatFrame.input:SetFocus()
+    end
+end
+
 SLASH_WOWGROK1 = "/grok"
 SLASH_WOWGROK2 = "/wowgrok"
 SlashCmdList["WOWGROK"] = function(msg)
     msg = msg and strtrim(msg) or ""
-    if msg == "" or msg == "hide" then
+    if msg == "" or msg == "toggle" then
+        ToggleChat()
+        return
+    end
+    if msg == "hide" then
         HideStrip()
+        if chatFrame then chatFrame:Hide() end
         pendingId = nil
-        Print("Strip hidden.")
         return
     end
     if msg == "status" then
@@ -164,27 +275,12 @@ SlashCmdList["WOWGROK"] = function(msg)
         return
     end
     if msg == "context" then
-        Print(GetContext())
+        AddMessage("system", GetContext())
         return
     end
 
-    local context = GetContext()
-    local fullText = "You are an in-game assistant for World of Warcraft (retail).\n" ..
-                     "Current player context:\n" .. context .. "\n\n" ..
-                     "Player question: " .. msg .. "\n\n" ..
-                     "Answer concisely and helpfully. Focus on WoW advice."
-
-    local cells, err = WoWGrok_Codec.Encode(nextId, fullText)
-    if not cells then
-        Print("Encode failed: " .. tostring(err))
-        return
-    end
-    pendingId = nextId
-    DrawStrip(cells)
-    Print("Sent id=" .. nextId .. ". Waiting for Grok reply...")
-    StartPolling()
-    nextId = nextId + 1
-    WoWGrokAssistantDB.nextId = nextId
+    -- Direct send from slash
+    SendMessage(msg)
 end
 
 frame:RegisterEvent("PLAYER_LOGIN")
@@ -192,7 +288,8 @@ frame:RegisterEvent("DISPLAY_SIZE_CHANGED")
 frame:RegisterEvent("UI_SCALE_CHANGED")
 frame:SetScript("OnEvent", function(self, event)
     if event == "PLAYER_LOGIN" then
-        Print("Loaded (Phase 2: Grok). Type /grok <message> or /grok context")
+        Print("Loaded. Type /grok to open the chat window.")
+        CreateChatUI()
     elseif stripFrame then
         stripFrame:SetScale(GetPixelPerfectScale())
     end
