@@ -1,7 +1,7 @@
 /**
- * WoW Grok Assistant — Bridge (Phase 2)
+ * WoW Grok Assistant — Bridge (Phase 2 + session resume)
  * - Spawns capture.ps1
- * - On decoded message, calls Grok CLI headlessly and writes the reply to slots
+ * - Calls Grok CLI with session resume for multi-turn conversations
  *
  * Requires: `grok` in PATH and logged in (`grok login`)
  * Optional: set WOW_ADDONS to your Interface\\AddOns path
@@ -14,6 +14,29 @@ const path = require("path")
 const captureScript = path.join(__dirname, "capture.ps1")
 const ADDONS = process.env.WOW_ADDONS || path.join(__dirname, "..", "test-addons")
 const NUM_SLOTS = 20
+const STATE_FILE = path.join(__dirname, "state.json")
+
+let currentSessionId = null
+
+function loadState() {
+  try {
+    if (fs.existsSync(STATE_FILE)) {
+      const s = JSON.parse(fs.readFileSync(STATE_FILE, "utf8"))
+      currentSessionId = s.sessionId || null
+      console.log("[state] loaded sessionId:", currentSessionId || "(none)")
+    }
+  } catch (e) {
+    console.warn("[state] failed to load:", e.message)
+  }
+}
+
+function saveState() {
+  try {
+    fs.writeFileSync(STATE_FILE, JSON.stringify({ sessionId: currentSessionId }, null, 2))
+  } catch (e) {
+    console.warn("[state] failed to save:", e.message)
+  }
+}
 
 function writeSlots(id, text) {
   const lua = `WoWGrok_SlotData = {
@@ -36,9 +59,14 @@ function writeSlots(id, text) {
 }
 
 function callGrok(prompt, callback) {
-  console.log("[grok] calling CLI...")
   const args = ["-p", prompt, "--output-format", "json", "--no-auto-update"]
-  // Optional: --always-approve if you want tools; omitted for pure chat for now
+  if (currentSessionId) {
+    args.push("--resume", currentSessionId)
+    console.log(`[grok] resuming session ${currentSessionId}`)
+  } else {
+    console.log("[grok] starting new session")
+  }
+
   const proc = spawn("grok", args, { stdio: ["ignore", "pipe", "pipe"] })
 
   let stdout = ""
@@ -54,9 +82,13 @@ function callGrok(prompt, callback) {
     try {
       const json = JSON.parse(stdout.trim())
       const text = json.text || json.response || stdout.trim() || "(empty reply)"
+      if (json.sessionId) {
+        currentSessionId = json.sessionId
+        saveState()
+        console.log(`[grok] sessionId updated to ${currentSessionId}`)
+      }
       callback(text, null)
     } catch (e) {
-      // Fallback if not pure JSON
       callback(stdout.trim() || stderr.trim() || "(no output)", null)
     }
   })
@@ -66,7 +98,9 @@ function callGrok(prompt, callback) {
   })
 }
 
-console.log("WoW Grok Assistant bridge (Phase 2: Grok CLI)")
+loadState()
+
+console.log("WoW Grok Assistant bridge (Phase 2 + session resume)")
 console.log("AddOns path:", ADDONS)
 console.log("Starting capture.ps1 ...")
 
@@ -92,7 +126,6 @@ ps.stdout.on("data", (data) => {
         console.error("[capture]", msg.error)
       } else if (msg.id !== undefined && msg.text !== undefined) {
         console.log(`[decoded] id=${msg.id} text=${JSON.stringify(msg.text)}`)
-        // The addon already prefixes context; we just pass the full text as prompt
         const fullPrompt = msg.text
         callGrok(fullPrompt, (reply, err) => {
           if (err) {
