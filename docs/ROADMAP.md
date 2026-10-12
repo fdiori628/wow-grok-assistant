@@ -33,15 +33,18 @@
 - [x] Pixel sampling ±1 tolerance
 - [x] Chat history persistence (last 20)
 - [x] `/grok debug` command
-- [x] Notes length limit
+- [x] Notes length limit (count + 180 chars)
 - [x] Raised MAX_PAYLOAD to 6000
 - [x] Weekly progress by type (M+ / Raid / World)
 - [x] Serialized Slot writes (concurrency lock)
 - [x] Majority-vote pixel sampling
 - [x] Clear/hide cancels pending requests
 - [x] Polling attempt limit (auto-cancel)
-- [x] Safer reward hyperlink extraction
+- [x] Safer reward extraction (itemID)
 - [x] DB version field
+- [x] Write queue try/finally protection
+- [x] Quieter Slot-load failure logging
+- [x] `/grok status` shows last Slot timestamp
 
 ## Notes
 - Primary target: retail 12.1 (Interface 120100)
