@@ -4,7 +4,8 @@
 
 ### Weekly Activity Monitor
 - Command: `/grok weekly`
-- Builds a focused prompt asking Grok to summarize current weekly progress (from context) and suggest priorities.
+- Context now includes separate progress for M+ (Activities), Raid, and World vaults.
+- Asks Grok to summarize and suggest priorities.
 
 ### Gear Upgrade Suggestions
 - Command: `/grok gear`
@@ -17,6 +18,12 @@
   - `/grok note clear` — clear notes
 - Stored in `WoWGrokAssistantDB.notes` (SavedVariables), keyed by character-realm.
 - Notes are automatically included in the context sent to Grok.
+- Limited to 10 notes per character.
+
+### Basic Map / Route Helper
+- Command: `/grok map`
+- Uses current zone and asks Grok for practical activity / route suggestions.
+- Full pathing is limited by 12.1 API restrictions; this is zone-context only.
 
 ## Usage
 
@@ -25,6 +32,7 @@
    ```
    /grok weekly
    /grok gear
+   /grok map
    /grok note add farm M+ 8+ for vault
    /grok note list
    ```
@@ -32,5 +40,5 @@
 ## Notes
 
 - These features reuse the existing Grok pipeline and context collection.
-- Map/route helpers are still pending (may be limited by 12.1 API restrictions).
-- Notes persist across sessions via SavedVariables.
+- Optional API key backend is available in the bridge (`XAI_API_KEY` env var).
+- Notes and chat history persist across sessions via SavedVariables.
