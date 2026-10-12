@@ -47,10 +47,15 @@ function saveState() {
 function processWriteQueue() {
   if (writing || writeQueue.length === 0) return
   writing = true
-  const { id, text } = writeQueue.shift()
-  writeSingleSlot(id, text)
-  writing = false
-  setImmediate(processWriteQueue)
+  try {
+    const { id, text } = writeQueue.shift()
+    writeSingleSlot(id, text)
+  } catch (e) {
+    console.error("[slots] write failed:", e.message)
+  } finally {
+    writing = false
+    setImmediate(processWriteQueue)
+  }
 }
 
 function enqueueWrite(id, text) {
