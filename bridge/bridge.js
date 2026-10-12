@@ -1,19 +1,22 @@
 /**
  * WoW Grok Assistant — Bridge
  * - Spawns capture.ps1 (auto-restart)
- * - Calls Grok CLI with session resume + timeout
+ * - Calls Grok CLI (preferred) or XAI API key fallback
  * - Writes replies to a single rotating slot
  */
 
 const { spawn } = require("child_process")
 const fs = require("fs")
 const path = require("path")
+const https = require("https")
 
 const captureScript = path.join(__dirname, "capture.ps1")
 const ADDONS = process.env.WOW_ADDONS || path.join(__dirname, "..", "test-addons")
 const NUM_SLOTS = 20
 const STATE_FILE = path.join(__dirname, "state.json")
 const GROK_TIMEOUT_MS = 45000
+const API_KEY = process.env.XAI_API_KEY || null
+const USE_API = !!API_KEY
 
 let currentSessionId = null
 let nextWriteSlot = 1
@@ -64,7 +67,44 @@ function writeSingleSlot(id, text) {
   }
 }
 
-function callGrok(prompt, callback) {
+function callGrokAPI(prompt, callback) {
+  const body = JSON.stringify({
+    model: "grok-4.7",
+    messages: [{ role: "user", content: prompt }],
+    temperature: 0.7
+  })
+  const req = https.request({
+    hostname: "api.x.ai",
+    path: "/v1/chat/completions",
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${API_KEY}`,
+      "Content-Type": "application/json",
+      "Content-Length": Buffer.byteLength(body)
+    }
+  }, (res) => {
+    let data = ""
+    res.on("data", (c) => { data += c })
+    res.on("end", () => {
+      try {
+        const json = JSON.parse(data)
+        const text = json.choices?.[0]?.message?.content || "(empty)"
+        callback(text, null)
+      } catch (e) {
+        callback(null, "API parse error: " + data.slice(0, 200))
+      }
+    })
+  })
+  req.on("error", (err) => callback(null, "API request failed: " + err.message))
+  req.setTimeout(GROK_TIMEOUT_MS, () => {
+    req.destroy()
+    callback(null, "API timeout")
+  })
+  req.write(body)
+  req.end()
+}
+
+function callGrokCLI(prompt, callback) {
   const args = ["-p", prompt, "--output-format", "json", "--no-auto-update"]
   if (currentSessionId) {
     args.push("--resume", currentSessionId)
@@ -118,6 +158,15 @@ function callGrok(prompt, callback) {
     clearTimeout(timer)
     callback(null, `Failed to spawn grok: ${err.message}`)
   })
+}
+
+function callGrok(prompt, callback) {
+  if (USE_API) {
+    console.log("[grok] using XAI API key")
+    callGrokAPI(prompt, callback)
+  } else {
+    callGrokCLI(prompt, callback)
+  }
 }
 
 function startCapture() {
@@ -176,6 +225,7 @@ function startCapture() {
 loadState()
 console.log("WoW Grok Assistant bridge")
 console.log("AddOns path:", ADDONS)
+console.log("Backend:", USE_API ? "XAI API key" : "Grok CLI")
 startCapture()
 
 process.on("SIGINT", () => {
