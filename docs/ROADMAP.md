@@ -16,7 +16,7 @@
 - [x] Grok CLI backend (`grok login` + headless)
 - [ ] Optional API key backend
 - [x] Character context collection (gear, quests, zone)
-- [ ] In-game chat UI
+- [x] In-game chat UI
 - [ ] Session resume / multi-turn
 
 ## Phase 3 — Useful Features
