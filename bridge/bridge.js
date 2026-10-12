@@ -2,7 +2,7 @@
  * WoW Grok Assistant — Bridge
  * - Spawns capture.ps1 (auto-restart)
  * - Calls Grok CLI (preferred) or XAI API key fallback
- * - Writes replies to a single rotating slot
+ * - Serializes Slot writes to prevent reply ID races
  */
 
 const { spawn } = require("child_process")
@@ -21,6 +21,8 @@ const USE_API = !!API_KEY
 let currentSessionId = null
 let nextWriteSlot = 1
 let captureProc = null
+let writeQueue = []
+let writing = false
 
 function loadState() {
   try {
@@ -40,6 +42,20 @@ function saveState() {
   } catch (e) {
     console.warn("[state] failed to save:", e.message)
   }
+}
+
+function processWriteQueue() {
+  if (writing || writeQueue.length === 0) return
+  writing = true
+  const { id, text } = writeQueue.shift()
+  writeSingleSlot(id, text)
+  writing = false
+  setImmediate(processWriteQueue)
+}
+
+function enqueueWrite(id, text) {
+  writeQueue.push({ id, text })
+  processWriteQueue()
 }
 
 function writeSingleSlot(id, text) {
@@ -88,6 +104,10 @@ function callGrokAPI(prompt, callback) {
     res.on("end", () => {
       try {
         const json = JSON.parse(data)
+        if (res.statusCode !== 200) {
+          callback(null, `API ${res.statusCode}: ${(json.error?.message || data).slice(0, 300)}`)
+          return
+        }
         const text = json.choices?.[0]?.message?.content || "(empty)"
         callback(text, null)
       } catch (e) {
@@ -162,8 +182,9 @@ function callGrokCLI(prompt, callback) {
 
 function callGrok(prompt, callback) {
   if (USE_API) {
-    console.log("[grok] using XAI API key")
-    callGrokAPI(prompt, callback)
+    console.log("[grok] using XAI API key (stateless)")
+    const apiPrompt = "[New session - no prior history]\n" + prompt
+    callGrokAPI(apiPrompt, callback)
   } else {
     callGrokCLI(prompt, callback)
   }
@@ -197,10 +218,10 @@ function startCapture() {
           callGrok(msg.text, (reply, err) => {
             if (err) {
               console.error("[grok]", err)
-              writeSingleSlot(msg.id, "Error: " + err)
+              enqueueWrite(msg.id, "Error: " + err)
             } else {
               console.log(`[grok] reply length=${(reply || "").length}`)
-              writeSingleSlot(msg.id, reply || "(empty)")
+              enqueueWrite(msg.id, reply || "(empty)")
             }
           })
         } else {
