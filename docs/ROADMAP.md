@@ -45,6 +45,10 @@
 - [x] Write queue try/finally protection
 - [x] Quieter Slot-load failure logging
 - [x] `/grok status` shows last Slot timestamp
+- [x] Bridge heartbeat every 30s
+- [x] Write-failure error reply
+- [x] Capture requires 2 consecutive identical decodes
+- [x] Payload length pre-check before Encode
 
 ## Notes
 - Primary target: retail 12.1 (Interface 120100)
