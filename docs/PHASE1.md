@@ -8,9 +8,15 @@
   Bytes packed MSB-first into 3-bit cells (R/G/B fully on/off).
 
 - `addon/WoWGrokAssistant/WoWGrokAssistant.lua`  
-  On `/grok <text>` it encodes the message and draws a 4	imes4-pixel cell strip in the top-left corner of the UI.  
+  On `/grok <text>` it encodes the message and draws a 4×4-pixel cell strip in the top-left corner of the UI.  
   `/grok hide` hides the strip.  
   Message ids are persisted in SavedVariables.
+
+  **Pixel-perfect scaling** (same method as wow-ai / WowGrok):
+  ```lua
+  scale = (768 / physicalHeight) / UIParent:GetEffectiveScale()
+  ```
+  One UI unit equals one physical pixel. Scale is refreshed on `DISPLAY_SIZE_CHANGED` and `UI_SCALE_CHANGED`.
 
 ### Bridge side
 - `bridge/capture.ps1`  
@@ -37,10 +43,12 @@
    [decoded] id=1 text="hello world"
    ```
 
+You can also type `/grok status` to see the current physical height and computed scale.
+
 ## Notes / Limitations (Phase 1)
 
 - Windows only for the capture script (Linux/macOS later).
-- Scale is approximate; on high-DPI or unusual UI scales the cells may not align perfectly. The original projects use a more precise `768 / physicalHeight` scale.
+- Pixel strip uses the standard WoW pixel-perfect scale (`768 / physicalHeight`). This should align correctly on most resolutions and UI scales.
 - No ACK, no slot pool, no Grok call yet — this is only the outbound pixel channel.
 - Strip stays visible until you `/grok hide`.
 
