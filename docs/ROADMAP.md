@@ -20,9 +20,9 @@
 - [x] Session resume / multi-turn
 
 ## Phase 3 — Useful Features
-- [ ] Weekly activity monitor / reminders
-- [ ] Gear upgrade suggestions
-- [ ] Persistent per-character notes
+- [x] Weekly activity monitor / reminders (`/grok weekly`)
+- [x] Gear upgrade suggestions (`/grok gear`)
+- [x] Persistent per-character notes (`/grok note`)
 - [ ] Map / route helpers (if feasible under 12.1 restrictions)
 
 ## Notes
