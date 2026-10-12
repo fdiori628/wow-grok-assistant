@@ -2,7 +2,7 @@
  * WoW Grok Assistant — Bridge
  * - Spawns capture.ps1 (auto-restart)
  * - Calls Grok CLI (preferred) or XAI API key fallback
- * - Serializes Slot writes to prevent reply ID races
+ * - Serializes Slot writes + heartbeat
  */
 
 const { spawn } = require("child_process")
@@ -15,6 +15,7 @@ const ADDONS = process.env.WOW_ADDONS || path.join(__dirname, "..", "test-addons
 const NUM_SLOTS = 20
 const STATE_FILE = path.join(__dirname, "state.json")
 const GROK_TIMEOUT_MS = 45000
+const HEARTBEAT_MS = 30000
 const API_KEY = process.env.XAI_API_KEY || null
 const USE_API = !!API_KEY
 
@@ -49,7 +50,11 @@ function processWriteQueue() {
   writing = true
   try {
     const { id, text } = writeQueue.shift()
-    writeSingleSlot(id, text)
+    const ok = writeSingleSlot(id, text)
+    if (!ok && id !== 0) {
+      console.warn("[slots] write failed for id=" + id + ", queueing error reply")
+      writeQueue.unshift({ id, text: "Error: no Slot directories found. Check WOW_ADDONS path." })
+    }
   } catch (e) {
     console.error("[slots] write failed:", e.message)
   } finally {
@@ -71,20 +76,34 @@ function writeSingleSlot(id, text) {
   }
 }
 `
-  let written = false
   for (let attempt = 0; attempt < NUM_SLOTS; attempt++) {
     const name = `WoWGrok_S${String(nextWriteSlot).padStart(3, "0")}`
     const inbox = path.join(ADDONS, name, "Inbox.lua")
     nextWriteSlot = (nextWriteSlot % NUM_SLOTS) + 1
     if (fs.existsSync(path.dirname(inbox))) {
       fs.writeFileSync(inbox, lua)
-      console.log(`[slots] wrote reply id=${id} to ${name}`)
-      written = true
-      break
+      console.log(`[slots] wrote id=${id} to ${name}`)
+      return true
     }
   }
-  if (!written) {
-    console.warn("[slots] no slot directories found — check WOW_ADDONS path")
+  console.warn("[slots] no slot directories found — check WOW_ADDONS path")
+  return false
+}
+
+function writeHeartbeat() {
+  const lua = `WoWGrok_SlotData = {
+  now = ${Math.floor(Date.now() / 1000)},
+  replies = {}
+}
+`
+  for (let attempt = 0; attempt < NUM_SLOTS; attempt++) {
+    const name = `WoWGrok_S${String(nextWriteSlot).padStart(3, "0")}`
+    const inbox = path.join(ADDONS, name, "Inbox.lua")
+    nextWriteSlot = (nextWriteSlot % NUM_SLOTS) + 1
+    if (fs.existsSync(path.dirname(inbox))) {
+      fs.writeFileSync(inbox, lua)
+      return
+    }
   }
 }
 
@@ -253,6 +272,8 @@ console.log("WoW Grok Assistant bridge")
 console.log("AddOns path:", ADDONS)
 console.log("Backend:", USE_API ? "XAI API key" : "Grok CLI")
 startCapture()
+setInterval(writeHeartbeat, HEARTBEAT_MS)
+writeHeartbeat()
 
 process.on("SIGINT", () => {
   if (captureProc) captureProc.kill()
