@@ -1,10 +1,11 @@
 -- WoWGrokAssistant
--- Phase 2+3 + enhancements
+-- Phase 2+3 + review fixes
 
 local addonName, addonTable = ...
 local frame = CreateFrame("Frame")
 
 WoWGrokAssistantDB = WoWGrokAssistantDB or {}
+WoWGrokAssistantDB.version = WoWGrokAssistantDB.version or 1
 WoWGrokAssistantDB.notes = WoWGrokAssistantDB.notes or {}
 WoWGrokAssistantDB.history = WoWGrokAssistantDB.history or {}
 local nextId = (WoWGrokAssistantDB.nextId or 1)
@@ -13,7 +14,9 @@ local nextSlot = 1
 local NUM_SLOTS = 20
 local MAX_HISTORY = 20
 local MAX_NOTES = 10
+local MAX_POLL_ATTEMPTS = 12
 local pollTimer = nil
+local pollAttempts = 0
 local chatFrame = nil
 local messageText = ""
 local scrollChild = nil
@@ -31,6 +34,17 @@ local function GetCharKey()
     local name = UnitName("player") or "Unknown"
     local realm = GetRealmName() or ""
     return name .. "-" .. realm
+end
+
+local function CancelPending()
+    pendingId = nil
+    pollAttempts = 0
+    if pollTimer then
+        pollTimer:Cancel()
+        pollTimer = nil
+    end
+    HideStrip()
+    SetStatus("Ready")
 end
 
 local function RebuildMessageText()
@@ -161,9 +175,10 @@ local function GetWeeklyByType(typeId, label)
         end
         local rewardName = nil
         if act.rewards and #act.rewards > 0 and act.rewards[1].itemDBID and C_WeeklyRewards.GetItemHyperlink then
-            local link = C_WeeklyRewards.GetItemHyperlink(act.rewards[1].itemDBID)
-            if link then
-                rewardName = GetItemInfo(link) or link
+            local success, link = pcall(C_WeeklyRewards.GetItemHyperlink, act.rewards[1].itemDBID)
+            if success and link then
+                local nameOk, name = pcall(GetItemInfo, link)
+                rewardName = (nameOk and name) or link
             end
         end
         if prog ~= "" then
@@ -264,6 +279,10 @@ end
 
 local function SendMessage(msg)
     if not msg or msg == "" then return end
+    if pendingId then
+        AddMessage("system", "Previous request still pending. Use /grok clear to cancel.")
+        return
+    end
     AddMessage("user", msg)
     SetStatus("Sending...")
 
@@ -280,6 +299,7 @@ local function SendMessage(msg)
         return
     end
     pendingId = nextId
+    pollAttempts = 0
     DrawStrip(cells)
     AddMessage("system", "Waiting for Grok...")
     SetStatus("Waiting for Grok...")
@@ -294,13 +314,7 @@ local function ProcessSlotData()
     for _, reply in ipairs(data.replies) do
         if reply.id == pendingId and reply.status == "done" then
             AddMessage("grok", reply.text or "")
-            pendingId = nil
-            HideStrip()
-            SetStatus("Ready")
-            if pollTimer then
-                pollTimer:Cancel()
-                pollTimer = nil
-            end
+            CancelPending()
             return true
         end
     end
@@ -309,6 +323,12 @@ end
 
 local function PollSlot()
     if not pendingId then return end
+    pollAttempts = pollAttempts + 1
+    if pollAttempts > MAX_POLL_ATTEMPTS then
+        AddMessage("system", "No reply received after " .. MAX_POLL_ATTEMPTS .. " attempts. Bridge may be offline. Use /grok clear to reset.")
+        CancelPending()
+        return
+    end
     local name = string.format("WoWGrok_S%03d", nextSlot)
     nextSlot = nextSlot % NUM_SLOTS + 1
     local ok, reason = C_AddOns and C_AddOns.LoadAddOn(name)
@@ -321,7 +341,7 @@ end
 
 local function StartPolling()
     if pollTimer then pollTimer:Cancel() end
-    local delays = {1, 2, 3, 5, 8, 12, 20}
+    local delays = {1, 2, 3, 5, 8, 12, 20, 30}
     local idx = 1
     local function scheduleNext()
         if not pendingId or idx > #delays then return end
@@ -371,7 +391,7 @@ local function CreateChatUI()
         WoWGrokAssistantDB.history = {}
         messageText = ""
         if scrollChild then scrollChild:SetText("") end
-        SetStatus("Ready")
+        CancelPending()
     end)
 
     statusText = chatFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -432,19 +452,18 @@ SlashCmdList["WOWGROK"] = function(msg)
         return
     end
     if cmd == "hide" then
-        HideStrip()
         if chatFrame then chatFrame:Hide() end
-        pendingId = nil
+        CancelPending()
         return
     end
     if cmd == "status" then
-        Print("Next id: " .. nextId .. " pending: " .. tostring(pendingId))
+        Print("Next id: " .. nextId .. " pending: " .. tostring(pendingId) .. " polls: " .. pollAttempts)
         return
     end
     if cmd == "debug" then
         local scale = GetPixelPerfectScale()
         local hist = #WoWGrokAssistantDB.history
-        Print(string.format("scale=%.4f nextId=%d pending=%s nextSlot=%d history=%d", scale, nextId, tostring(pendingId), nextSlot, hist))
+        Print(string.format("scale=%.4f nextId=%d pending=%s nextSlot=%d history=%d polls=%d", scale, nextId, tostring(pendingId), nextSlot, hist, pollAttempts))
         return
     end
     if cmd == "context" then
@@ -455,7 +474,7 @@ SlashCmdList["WOWGROK"] = function(msg)
         WoWGrokAssistantDB.history = {}
         messageText = ""
         if scrollChild then scrollChild:SetText("") end
-        SetStatus("Ready")
+        CancelPending()
         return
     end
 
