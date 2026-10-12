@@ -38,7 +38,6 @@ local function AddMessage(role, text)
         scrollChild:SetText(messageText)
         local sf = scrollChild:GetParent()
         if sf then
-            -- Force scroll to bottom
             C_Timer.After(0.05, function()
                 if sf.ScrollToBottom then sf:ScrollToBottom() end
             end)
@@ -125,17 +124,33 @@ local function GetContext()
     tinsert(parts, string.format("Character: %s, Level %s %s", name, level, class or ""))
     tinsert(parts, string.format("Zone: %s%s", zone, sub ~= "" and (" / " .. sub) or ""))
 
+    -- Spec
+    local specIndex = GetSpecialization()
+    if specIndex then
+        local _, specName = GetSpecializationInfo(specIndex)
+        if specName then
+            tinsert(parts, "Specialization: " .. specName)
+        end
+    end
+
     -- Item level
     local avg, equipped = GetAverageItemLevel()
     if avg and equipped then
         tinsert(parts, string.format("Item Level: %.1f equipped / %.1f overall", equipped, avg))
     end
 
+    -- Gold
+    local money = GetMoney()
+    if money then
+        local gold = math.floor(money / 10000)
+        tinsert(parts, string.format("Gold: %d", gold))
+    end
+
     -- Quests
     local numQuests = C_QuestLog and C_QuestLog.GetNumQuestLogEntries and C_QuestLog.GetNumQuestLogEntries() or 0
     tinsert(parts, string.format("Active quests: %d", numQuests))
 
-    -- Weekly rewards (vault / activities)
+    -- Weekly rewards
     if C_WeeklyRewards and C_WeeklyRewards.GetActivities then
         local ok, activities = pcall(C_WeeklyRewards.GetActivities)
         if ok and activities and #activities > 0 then
@@ -151,15 +166,35 @@ local function GetContext()
         end
     end
 
-    -- Gear summary (names only to keep payload smaller)
+    -- Professions
+    local profs = {}
+    local prof1, prof2, archaeology, fishing, cooking = GetProfessions()
+    local function addProf(idx)
+        if idx then
+            local name, _, skillLevel, maxSkill = GetProfessionInfo(idx)
+            if name and skillLevel then
+                tinsert(profs, string.format("%s %d/%d", name, skillLevel, maxSkill or 0))
+            end
+        end
+    end
+    addProf(prof1)
+    addProf(prof2)
+    addProf(archaeology)
+    addProf(fishing)
+    addProf(cooking)
+    if #profs > 0 then
+        tinsert(parts, "Professions: " .. table.concat(profs, ", "))
+    end
+
+    -- Gear summary
     local gear = {}
     local slots = {1,2,3,5,6,7,8,9,10,11,12,13,14,15,16,17}
     for _, slot in ipairs(slots) do
         local link = GetInventoryItemLink("player", slot)
         if link then
-            local name = GetItemInfo(link)
-            if name then
-                tinsert(gear, name)
+            local itemName = GetItemInfo(link)
+            if itemName then
+                tinsert(gear, itemName)
             end
         end
     end
