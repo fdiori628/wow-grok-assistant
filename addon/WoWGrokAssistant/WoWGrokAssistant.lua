@@ -14,9 +14,11 @@ local nextSlot = 1
 local NUM_SLOTS = 20
 local MAX_HISTORY = 20
 local MAX_NOTES = 10
+local MAX_NOTE_LEN = 180
 local MAX_POLL_ATTEMPTS = 12
 local pollTimer = nil
 local pollAttempts = 0
+local failPrints = 0
 local chatFrame = nil
 local messageText = ""
 local scrollChild = nil
@@ -39,6 +41,7 @@ end
 local function CancelPending()
     pendingId = nil
     pollAttempts = 0
+    failPrints = 0
     if pollTimer then
         pollTimer:Cancel()
         pollTimer = nil
@@ -173,17 +176,13 @@ local function GetWeeklyByType(typeId, label)
         if act.progress and act.threshold then
             prog = string.format("%d/%d", act.progress, act.threshold)
         end
-        local rewardName = nil
-        if act.rewards and #act.rewards > 0 and act.rewards[1].itemDBID and C_WeeklyRewards.GetItemHyperlink then
-            local success, link = pcall(C_WeeklyRewards.GetItemHyperlink, act.rewards[1].itemDBID)
-            if success and link then
-                local nameOk, name = pcall(GetItemInfo, link)
-                rewardName = (nameOk and name) or link
-            end
+        local rewardHint = nil
+        if act.rewards and #act.rewards > 0 and act.rewards[1].itemDBID then
+            rewardHint = "item:" .. tostring(act.rewards[1].itemDBID)
         end
         if prog ~= "" then
-            if rewardName then
-                tinsert(parts, prog .. " (" .. rewardName .. ")")
+            if rewardHint then
+                tinsert(parts, prog .. " (" .. rewardHint .. ")")
             else
                 tinsert(parts, prog)
             end
@@ -300,6 +299,7 @@ local function SendMessage(msg)
     end
     pendingId = nextId
     pollAttempts = 0
+    failPrints = 0
     DrawStrip(cells)
     AddMessage("system", "Waiting for Grok...")
     SetStatus("Waiting for Grok...")
@@ -334,7 +334,8 @@ local function PollSlot()
     local ok, reason = C_AddOns and C_AddOns.LoadAddOn(name)
     if ok then
         ProcessSlotData()
-    elseif reason then
+    elseif reason and failPrints < 2 then
+        failPrints = failPrints + 1
         Print("Slot load failed: " .. tostring(reason))
     end
 end
@@ -457,7 +458,12 @@ SlashCmdList["WOWGROK"] = function(msg)
         return
     end
     if cmd == "status" then
-        Print("Next id: " .. nextId .. " pending: " .. tostring(pendingId) .. " polls: " .. pollAttempts)
+        local bridgeHint = "unknown"
+        if WoWGrok_SlotData and WoWGrok_SlotData.now then
+            local age = time() - WoWGrok_SlotData.now
+            bridgeHint = string.format("%ds ago", age)
+        end
+        Print("Next id: " .. nextId .. " pending: " .. tostring(pendingId) .. " polls: " .. pollAttempts .. " | last slot: " .. bridgeHint)
         return
     end
     if cmd == "debug" then
@@ -501,6 +507,10 @@ SlashCmdList["WOWGROK"] = function(msg)
         local sub, text = rest:match("^(%S+)%s*(.*)$")
         sub = sub and sub:lower() or "list"
         if sub == "add" and text ~= "" then
+            if #text > MAX_NOTE_LEN then
+                text = text:sub(1, MAX_NOTE_LEN)
+                AddMessage("system", "Note truncated to " .. MAX_NOTE_LEN .. " chars.")
+            end
             if #WoWGrokAssistantDB.notes[key] >= MAX_NOTES then
                 AddMessage("system", "Note limit reached (" .. MAX_NOTES .. "). Clear some first.")
             else
