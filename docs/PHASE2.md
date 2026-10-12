@@ -4,10 +4,13 @@
 
 ### Character context (addon)
 - Character name, level, class, zone / subzone
+- Specialization name
 - Average / equipped item level (`GetAverageItemLevel`)
+- Gold amount
 - Active quest count
 - Weekly rewards progress (`C_WeeklyRewards.GetActivities`)
-- Equipped item names (cleaner payload)
+- Professions with skill levels (`GetProfessions` + `GetProfessionInfo`)
+- Equipped item names
 
 ### Grok CLI (bridge)
 - Calls `grok -p "..." --output-format json` and writes the reply to the slot pool.
@@ -41,6 +44,6 @@
 ## Notes / Next steps
 
 - UI still lacks persistent history across reloads.
-- Context can be further enriched (professions, currencies, detailed weekly vault, etc.).
+- Context can be further enriched (detailed weekly vault, currencies beyond gold, etc.).
 - Optional API key backend can be added later.
 - To start a fresh session, delete `bridge/state.json` and restart the bridge.
