@@ -1,4 +1,4 @@
-# Phase 2: Grok CLI Integration + Character Context + Chat UI
+# Phase 2: Grok CLI Integration + Character Context + Chat UI + Session Resume
 
 ## What was implemented
 
@@ -8,6 +8,12 @@
 
 ### Grok CLI (bridge)
 - Calls `grok -p "..." --output-format json` and writes the reply to the slot pool.
+
+### Session Resume
+- Bridge parses `sessionId` from Grok's JSON response.
+- Persists it to `bridge/state.json`.
+- Subsequent messages automatically use `--resume <sessionId>` so the conversation continues with prior context.
+- Survives bridge restarts.
 
 ### In-game Chat UI
 - Movable window with title bar, scrollable message area, and input box.
@@ -27,12 +33,12 @@
 
 1. Start bridge: `node bridge/bridge.js`
 2. In game: `/grok` to open the window.
-3. Type a question and press Enter.
-4. Expected: Message appears in the window, bridge calls Grok, reply appears in the window.
+3. Send a first message, then a follow-up (e.g. "what did I just ask?").
+4. Expected: Second reply shows awareness of the first message (session resumed).
 
 ## Notes / Next steps
 
 - UI is basic (no history persistence, no rich formatting).
-- No session resume yet.
 - Context can still be enriched (weekly activities, gear scoring, etc.).
 - Optional API key backend can be added later.
+- To start a fresh session, delete `bridge/state.json` and restart the bridge.
