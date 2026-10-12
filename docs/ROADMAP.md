@@ -1,15 +1,16 @@
 # Roadmap
 
-## Phase 0 — Skeleton (current)
+## Phase 0 — Skeleton
 - [x] Repository structure
 - [x] Basic addon .toc + slash command
 - [x] Architecture document
 
 ## Phase 1 — Communication
-- [ ] Pixel strip encoder in the addon
-- [ ] Slot pool generation + writer in the bridge
-- [ ] Screen capture (Windows first)
-- [ ] Basic round-trip: send message → receive echo
+- [x] Pixel strip encoder in the addon
+- [x] Pixel-perfect scaling
+- [x] Windows screen capture decoder
+- [x] Slot pool generation + writer in the bridge
+- [x] Basic round-trip: send message → receive echo
 
 ## Phase 2 — Grok Integration
 - [ ] Grok CLI backend (`grok login` + headless)
