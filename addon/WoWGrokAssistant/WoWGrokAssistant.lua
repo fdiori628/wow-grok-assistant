@@ -1,10 +1,11 @@
 -- WoWGrokAssistant
--- Phase 2+: Enhanced UI + richer character context
+-- Phase 2+3: Enhanced UI, rich context, weekly/gear helpers, notes
 
 local addonName, addonTable = ...
 local frame = CreateFrame("Frame")
 
 WoWGrokAssistantDB = WoWGrokAssistantDB or {}
+WoWGrokAssistantDB.notes = WoWGrokAssistantDB.notes or {}
 local nextId = (WoWGrokAssistantDB.nextId or 1)
 local pendingId = nil
 local nextSlot = 1
@@ -21,6 +22,12 @@ end
 
 local function GetTimestamp()
     return date("%H:%M")
+end
+
+local function GetCharKey()
+    local name = UnitName("player") or "Unknown"
+    local realm = GetRealmName() or ""
+    return name .. "-" .. realm
 end
 
 local function AddMessage(role, text)
@@ -124,7 +131,6 @@ local function GetContext()
     tinsert(parts, string.format("Character: %s, Level %s %s", name, level, class or ""))
     tinsert(parts, string.format("Zone: %s%s", zone, sub ~= "" and (" / " .. sub) or ""))
 
-    -- Spec
     local specIndex = GetSpecialization()
     if specIndex then
         local _, specName = GetSpecializationInfo(specIndex)
@@ -133,24 +139,20 @@ local function GetContext()
         end
     end
 
-    -- Item level
     local avg, equipped = GetAverageItemLevel()
     if avg and equipped then
         tinsert(parts, string.format("Item Level: %.1f equipped / %.1f overall", equipped, avg))
     end
 
-    -- Gold
     local money = GetMoney()
     if money then
         local gold = math.floor(money / 10000)
         tinsert(parts, string.format("Gold: %d", gold))
     end
 
-    -- Quests
     local numQuests = C_QuestLog and C_QuestLog.GetNumQuestLogEntries and C_QuestLog.GetNumQuestLogEntries() or 0
     tinsert(parts, string.format("Active quests: %d", numQuests))
 
-    -- Weekly rewards
     if C_WeeklyRewards and C_WeeklyRewards.GetActivities then
         local ok, activities = pcall(C_WeeklyRewards.GetActivities)
         if ok and activities and #activities > 0 then
@@ -166,7 +168,6 @@ local function GetContext()
         end
     end
 
-    -- Professions
     local profs = {}
     local prof1, prof2, archaeology, fishing, cooking = GetProfessions()
     local function addProf(idx)
@@ -186,7 +187,6 @@ local function GetContext()
         tinsert(parts, "Professions: " .. table.concat(profs, ", "))
     end
 
-    -- Gear summary
     local gear = {}
     local slots = {1,2,3,5,6,7,8,9,10,11,12,13,14,15,16,17}
     for _, slot in ipairs(slots) do
@@ -200,6 +200,13 @@ local function GetContext()
     end
     if #gear > 0 then
         tinsert(parts, "Equipped: " .. table.concat(gear, ", "))
+    end
+
+    -- Include notes if any
+    local key = GetCharKey()
+    local notes = WoWGrokAssistantDB.notes[key]
+    if notes and #notes > 0 then
+        tinsert(parts, "Notes: " .. table.concat(notes, "; "))
     end
 
     return table.concat(parts, "\n")
@@ -363,31 +370,68 @@ SLASH_WOWGROK1 = "/grok"
 SLASH_WOWGROK2 = "/wowgrok"
 SlashCmdList["WOWGROK"] = function(msg)
     msg = msg and strtrim(msg) or ""
-    if msg == "" or msg == "toggle" then
+    local cmd, rest = msg:match("^(%S+)%s*(.*)$")
+    cmd = cmd and cmd:lower() or ""
+
+    if msg == "" or cmd == "toggle" then
         ToggleChat()
         return
     end
-    if msg == "hide" then
+    if cmd == "hide" then
         HideStrip()
         if chatFrame then chatFrame:Hide() end
         pendingId = nil
         return
     end
-    if msg == "status" then
+    if cmd == "status" then
         Print("Next id: " .. nextId .. " pending: " .. tostring(pendingId))
         return
     end
-    if msg == "context" then
+    if cmd == "context" then
         AddMessage("system", GetContext())
         return
     end
-    if msg == "clear" then
+    if cmd == "clear" then
         messageText = ""
         if scrollChild then scrollChild:SetText("") end
         SetStatus("Ready")
         return
     end
 
+    -- Phase 3 commands
+    if cmd == "weekly" then
+        SendMessage("Summarize my current weekly progress and suggest the highest priority activities I should do this week.")
+        return
+    end
+    if cmd == "gear" then
+        SendMessage("Based on my current equipped gear and item level, suggest the most impactful upgrades I should pursue next (dungeons, raids, crafts, vault, etc.).")
+        return
+    end
+    if cmd == "note" then
+        local key = GetCharKey()
+        WoWGrokAssistantDB.notes[key] = WoWGrokAssistantDB.notes[key] or {}
+        local sub, text = rest:match("^(%S+)%s*(.*)$")
+        sub = sub and sub:lower() or "list"
+        if sub == "add" and text ~= "" then
+            tinsert(WoWGrokAssistantDB.notes[key], text)
+            AddMessage("system", "Note added: " .. text)
+        elseif sub == "list" then
+            local notes = WoWGrokAssistantDB.notes[key]
+            if #notes == 0 then
+                AddMessage("system", "No notes for this character.")
+            else
+                AddMessage("system", "Notes:\n" .. table.concat(notes, "\n"))
+            end
+        elseif sub == "clear" then
+            WoWGrokAssistantDB.notes[key] = {}
+            AddMessage("system", "Notes cleared.")
+        else
+            AddMessage("system", "Usage: /grok note add <text> | list | clear")
+        end
+        return
+    end
+
+    -- Default: send as message
     SendMessage(msg)
 end
 
@@ -397,6 +441,7 @@ frame:RegisterEvent("UI_SCALE_CHANGED")
 frame:SetScript("OnEvent", function(self, event)
     if event == "PLAYER_LOGIN" then
         Print("Loaded. Type /grok to open the chat window.")
+        Print("Phase 3: /grok weekly | /grok gear | /grok note add/list/clear")
         CreateChatUI()
     elseif stripFrame then
         stripFrame:SetScale(GetPixelPerfectScale())
