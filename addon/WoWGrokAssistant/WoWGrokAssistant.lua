@@ -1,5 +1,5 @@
 -- WoWGrokAssistant
--- Phase 1 complete: pixel out + slot in (echo round-trip)
+-- Phase 2: Grok CLI + basic character context
 
 local addonName, addonTable = ...
 local frame = CreateFrame("Frame")
@@ -75,6 +75,37 @@ local function HideStrip()
     if stripFrame then stripFrame:Hide() end
 end
 
+-- Basic character context (safe APIs for retail 12.1)
+local function GetContext()
+    local parts = {}
+    local name = UnitName("player") or "?"
+    local level = UnitLevel("player") or "?"
+    local _, class = UnitClass("player")
+    local zone = GetZoneText() or GetRealZoneText() or "?"
+    local sub = GetSubZoneText() or ""
+    tinsert(parts, string.format("Character: %s, Level %s %s", name, level, class or ""))
+    tinsert(parts, string.format("Zone: %s%s", zone, sub ~= "" and (" / " .. sub) or ""))
+
+    -- Quest count
+    local numQuests = C_QuestLog and C_QuestLog.GetNumQuestLogEntries and C_QuestLog.GetNumQuestLogEntries() or 0
+    tinsert(parts, string.format("Active quests: %d", numQuests))
+
+    -- Simple gear summary (item links for main slots)
+    local gear = {}
+    local slots = {1,2,3,5,6,7,8,9,10,11,12,13,14,15,16,17} -- head to offhand roughly
+    for _, slot in ipairs(slots) do
+        local link = GetInventoryItemLink("player", slot)
+        if link then
+            tinsert(gear, link)
+        end
+    end
+    if #gear > 0 then
+        tinsert(parts, "Equipped: " .. table.concat(gear, " "))
+    end
+
+    return table.concat(parts, "\n")
+end
+
 local function ProcessSlotData()
     local data = WoWGrok_SlotData
     if type(data) ~= "table" or type(data.replies) ~= "table" then return end
@@ -105,8 +136,7 @@ end
 
 local function StartPolling()
     if pollTimer then pollTimer:Cancel() end
-    -- Poll a few times with increasing delay
-    local delays = {0.5, 1, 2, 3, 5, 8}
+    local delays = {1, 2, 3, 5, 8, 12, 20}
     local idx = 1
     local function scheduleNext()
         if not pendingId or idx > #delays then return end
@@ -133,15 +163,25 @@ SlashCmdList["WOWGROK"] = function(msg)
         Print("Next id: " .. nextId .. " pending: " .. tostring(pendingId))
         return
     end
+    if msg == "context" then
+        Print(GetContext())
+        return
+    end
 
-    local cells, err = WoWGrok_Codec.Encode(nextId, msg)
+    local context = GetContext()
+    local fullText = "You are an in-game assistant for World of Warcraft (retail).\n" ..
+                     "Current player context:\n" .. context .. "\n\n" ..
+                     "Player question: " .. msg .. "\n\n" ..
+                     "Answer concisely and helpfully. Focus on WoW advice."
+
+    local cells, err = WoWGrok_Codec.Encode(nextId, fullText)
     if not cells then
         Print("Encode failed: " .. tostring(err))
         return
     end
     pendingId = nextId
     DrawStrip(cells)
-    Print("Sent id=" .. nextId .. ". Waiting for echo reply...")
+    Print("Sent id=" .. nextId .. ". Waiting for Grok reply...")
     StartPolling()
     nextId = nextId + 1
     WoWGrokAssistantDB.nextId = nextId
@@ -152,7 +192,7 @@ frame:RegisterEvent("DISPLAY_SIZE_CHANGED")
 frame:RegisterEvent("UI_SCALE_CHANGED")
 frame:SetScript("OnEvent", function(self, event)
     if event == "PLAYER_LOGIN" then
-        Print("Loaded (Phase 1 round-trip). Type /grok <message>")
+        Print("Loaded (Phase 2: Grok). Type /grok <message> or /grok context")
     elseif stripFrame then
         stripFrame:SetScale(GetPixelPerfectScale())
     end
