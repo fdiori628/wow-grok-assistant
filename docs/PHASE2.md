@@ -3,24 +3,26 @@
 ## What was implemented
 
 ### Character context (addon)
-- `GetContext()` collects character name/level/class, zone, quest count, and equipped item links.
-- Prompts automatically include this context.
+- Character name, level, class, zone / subzone
+- Average / equipped item level (`GetAverageItemLevel`)
+- Active quest count
+- Weekly rewards progress (`C_WeeklyRewards.GetActivities`)
+- Equipped item names (cleaner payload)
 
 ### Grok CLI (bridge)
 - Calls `grok -p "..." --output-format json` and writes the reply to the slot pool.
 
 ### Session Resume
-- Bridge parses `sessionId` from Grok's JSON response.
-- Persists it to `bridge/state.json`.
-- Subsequent messages automatically use `--resume <sessionId>` so the conversation continues with prior context.
-- Survives bridge restarts.
+- Bridge parses `sessionId` from Grok's JSON response and persists it to `bridge/state.json`.
+- Subsequent messages automatically use `--resume <sessionId>`.
 
 ### In-game Chat UI
 - Movable window with title bar, scrollable message area, and input box.
-- `/grok` (no args) toggles the window.
-- Type in the input box and press Enter to send.
-- User messages and Grok replies appear in the window (and also print to chat).
-- `/grok <message>` still works as a direct send.
+- Timestamps on messages.
+- Clear button and `/grok clear`.
+- Status indicator (Ready / Waiting / Error).
+- `/grok` toggles the window.
+- Enter in the input box sends the message.
 
 ## Requirements
 
@@ -33,12 +35,12 @@
 
 1. Start bridge: `node bridge/bridge.js`
 2. In game: `/grok` to open the window.
-3. Send a first message, then a follow-up (e.g. "what did I just ask?").
-4. Expected: Second reply shows awareness of the first message (session resumed).
+3. Send messages; follow-ups should continue the session.
+4. Try `/grok context` to see the enriched context.
 
 ## Notes / Next steps
 
-- UI is basic (no history persistence, no rich formatting).
-- Context can still be enriched (weekly activities, gear scoring, etc.).
+- UI still lacks persistent history across reloads.
+- Context can be further enriched (professions, currencies, detailed weekly vault, etc.).
 - Optional API key backend can be added later.
 - To start a fresh session, delete `bridge/state.json` and restart the bridge.
