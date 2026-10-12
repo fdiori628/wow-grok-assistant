@@ -1,5 +1,5 @@
 -- WoWGrokAssistant
--- Phase 2+3 + robustness + remaining features
+-- Phase 2+3 + enhancements
 
 local addonName, addonTable = ...
 local frame = CreateFrame("Frame")
@@ -155,8 +155,23 @@ local function GetWeeklyByType(typeId, label)
     if not ok or not activities or #activities == 0 then return nil end
     local parts = {}
     for _, act in ipairs(activities) do
+        local prog = ""
         if act.progress and act.threshold then
-            tinsert(parts, string.format("%d/%d", act.progress, act.threshold))
+            prog = string.format("%d/%d", act.progress, act.threshold)
+        end
+        local rewardName = nil
+        if act.rewards and #act.rewards > 0 and act.rewards[1].itemDBID and C_WeeklyRewards.GetItemHyperlink then
+            local link = C_WeeklyRewards.GetItemHyperlink(act.rewards[1].itemDBID)
+            if link then
+                rewardName = GetItemInfo(link) or link
+            end
+        end
+        if prog ~= "" then
+            if rewardName then
+                tinsert(parts, prog .. " (" .. rewardName .. ")")
+            else
+                tinsert(parts, prog)
+            end
         end
     end
     if #parts > 0 then
@@ -197,7 +212,6 @@ local function GetContext()
     local numQuests = C_QuestLog and C_QuestLog.GetNumQuestLogEntries and C_QuestLog.GetNumQuestLogEntries() or 0
     tinsert(parts, string.format("Active quests: %d", numQuests))
 
-    -- Weekly by type: 1=Activities (M+), 3=Raid, 6=World
     local w1 = GetWeeklyByType(1, "M+")
     local w3 = GetWeeklyByType(3, "Raid")
     local w6 = GetWeeklyByType(6, "World")
@@ -324,7 +338,7 @@ local function CreateChatUI()
     if chatFrame then return end
 
     chatFrame = CreateFrame("Frame", "WoWGrokChatFrame", UIParent, "BackdropTemplate")
-    chatFrame:SetSize(460, 360)
+    chatFrame:SetSize(480, 380)
     chatFrame:SetPoint("CENTER")
     chatFrame:SetBackdrop({
         bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
@@ -332,7 +346,7 @@ local function CreateChatUI()
         tile = true, tileSize = 32, edgeSize = 32,
         insets = { left = 11, right = 12, top = 12, bottom = 11 }
     })
-    chatFrame:SetBackdropColor(0, 0, 0, 0.85)
+    chatFrame:SetBackdropColor(0.05, 0.05, 0.08, 0.9)
     chatFrame:SetMovable(true)
     chatFrame:EnableMouse(true)
     chatFrame:RegisterForDrag("LeftButton")
@@ -343,7 +357,7 @@ local function CreateChatUI()
 
     local title = chatFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     title:SetPoint("TOP", 0, -12)
-    title:SetText("WoW Grok Assistant")
+    title:SetText("|cFF00AAFFWoW Grok Assistant|r")
 
     local closeBtn = CreateFrame("Button", nil, chatFrame, "UIPanelCloseButton")
     closeBtn:SetPoint("TOPRIGHT", -4, -4)
@@ -363,24 +377,24 @@ local function CreateChatUI()
     statusText = chatFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     statusText:SetPoint("TOPRIGHT", -40, -12)
     statusText:SetText("Ready")
-    statusText:SetTextColor(0.7, 0.7, 0.7)
+    statusText:SetTextColor(0.6, 0.8, 1)
 
     local scroll = CreateFrame("ScrollFrame", nil, chatFrame, "UIPanelScrollFrameTemplate")
-    scroll:SetPoint("TOPLEFT", 16, -40)
-    scroll:SetPoint("BOTTOMRIGHT", -32, 55)
+    scroll:SetPoint("TOPLEFT", 16, -42)
+    scroll:SetPoint("BOTTOMRIGHT", -32, 58)
 
     scrollChild = CreateFrame("EditBox", nil, scroll)
     scrollChild:SetMultiLine(true)
     scrollChild:SetFontObject(ChatFontNormal)
-    scrollChild:SetWidth(380)
+    scrollChild:SetWidth(400)
     scrollChild:SetAutoFocus(false)
     scrollChild:EnableMouse(false)
     scrollChild:SetText("")
     scroll:SetScrollChild(scrollChild)
 
     local input = CreateFrame("EditBox", nil, chatFrame, "InputBoxTemplate")
-    input:SetSize(360, 22)
-    input:SetPoint("BOTTOMLEFT", 20, 16)
+    input:SetSize(380, 22)
+    input:SetPoint("BOTTOMLEFT", 20, 18)
     input:SetAutoFocus(false)
     input:SetScript("OnEnterPressed", function(self)
         local text = self:GetText()
@@ -446,7 +460,7 @@ SlashCmdList["WOWGROK"] = function(msg)
     end
 
     if cmd == "weekly" then
-        SendMessage("Summarize my current weekly progress (M+, Raid, World) and suggest the highest priority activities I should do this week.")
+        SendMessage("Summarize my current weekly progress (M+, Raid, World) including any reward items, and suggest the highest priority activities I should do this week.")
         return
     end
     if cmd == "gear" then
@@ -456,6 +470,10 @@ SlashCmdList["WOWGROK"] = function(msg)
     if cmd == "map" then
         local zone = GetZoneText() or GetRealZoneText() or "unknown zone"
         SendMessage("I am currently in " .. zone .. ". Suggest useful activities, routes, or nearby objectives I should consider (dungeons, rares, world quests, etc.). Keep it practical.")
+        return
+    end
+    if cmd == "profession" or cmd == "prof" then
+        SendMessage("Based on my professions and skill levels, suggest what I should prioritize this week (knowledge points, crafts, gathering routes, or specialization choices).")
         return
     end
     if cmd == "note" then
@@ -495,7 +513,7 @@ frame:RegisterEvent("UI_SCALE_CHANGED")
 frame:SetScript("OnEvent", function(self, event)
     if event == "PLAYER_LOGIN" then
         Print("Loaded. Type /grok to open the chat window.")
-        Print("Commands: /grok weekly | gear | map | note | debug | clear")
+        Print("Commands: /grok weekly | gear | map | profession | note | debug | clear")
         CreateChatUI()
     elseif stripFrame then
         stripFrame:SetScale(GetPixelPerfectScale())
