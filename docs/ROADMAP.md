@@ -17,7 +17,7 @@
 - [ ] Optional API key backend
 - [x] Character context collection (gear, quests, zone)
 - [x] In-game chat UI
-- [ ] Session resume / multi-turn
+- [x] Session resume / multi-turn
 
 ## Phase 3 — Useful Features
 - [ ] Weekly activity monitor / reminders
