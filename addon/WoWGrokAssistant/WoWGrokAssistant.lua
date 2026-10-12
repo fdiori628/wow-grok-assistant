@@ -1,5 +1,5 @@
 -- WoWGrokAssistant
--- Phase 2+3 + robustness fixes
+-- Phase 2+3 + robustness + remaining features
 
 local addonName, addonTable = ...
 local frame = CreateFrame("Frame")
@@ -149,6 +149,22 @@ local function HideStrip()
     if stripFrame then stripFrame:Hide() end
 end
 
+local function GetWeeklyByType(typeId, label)
+    if not C_WeeklyRewards or not C_WeeklyRewards.GetActivities then return nil end
+    local ok, activities = pcall(function() return C_WeeklyRewards.GetActivities(typeId) end)
+    if not ok or not activities or #activities == 0 then return nil end
+    local parts = {}
+    for _, act in ipairs(activities) do
+        if act.progress and act.threshold then
+            tinsert(parts, string.format("%d/%d", act.progress, act.threshold))
+        end
+    end
+    if #parts > 0 then
+        return label .. ": " .. table.concat(parts, ", ")
+    end
+    return nil
+end
+
 local function GetContext()
     local parts = {}
     local name = UnitName("player") or "?"
@@ -181,20 +197,13 @@ local function GetContext()
     local numQuests = C_QuestLog and C_QuestLog.GetNumQuestLogEntries and C_QuestLog.GetNumQuestLogEntries() or 0
     tinsert(parts, string.format("Active quests: %d", numQuests))
 
-    if C_WeeklyRewards and C_WeeklyRewards.GetActivities then
-        local ok, activities = pcall(C_WeeklyRewards.GetActivities)
-        if ok and activities and #activities > 0 then
-            local weekly = {}
-            for _, act in ipairs(activities) do
-                if act.progress and act.threshold then
-                    tinsert(weekly, string.format("%d/%d", act.progress, act.threshold))
-                end
-            end
-            if #weekly > 0 then
-                tinsert(parts, "Weekly progress: " .. table.concat(weekly, ", "))
-            end
-        end
-    end
+    -- Weekly by type: 1=Activities (M+), 3=Raid, 6=World
+    local w1 = GetWeeklyByType(1, "M+")
+    local w3 = GetWeeklyByType(3, "Raid")
+    local w6 = GetWeeklyByType(6, "World")
+    if w1 then tinsert(parts, w1) end
+    if w3 then tinsert(parts, w3) end
+    if w6 then tinsert(parts, w6) end
 
     local profs = {}
     local prof1, prof2, archaeology, fishing, cooking = GetProfessions()
@@ -437,11 +446,16 @@ SlashCmdList["WOWGROK"] = function(msg)
     end
 
     if cmd == "weekly" then
-        SendMessage("Summarize my current weekly progress and suggest the highest priority activities I should do this week.")
+        SendMessage("Summarize my current weekly progress (M+, Raid, World) and suggest the highest priority activities I should do this week.")
         return
     end
     if cmd == "gear" then
         SendMessage("Based on my current equipped gear and item level, suggest the most impactful upgrades I should pursue next (dungeons, raids, crafts, vault, etc.).")
+        return
+    end
+    if cmd == "map" then
+        local zone = GetZoneText() or GetRealZoneText() or "unknown zone"
+        SendMessage("I am currently in " .. zone .. ". Suggest useful activities, routes, or nearby objectives I should consider (dungeons, rares, world quests, etc.). Keep it practical.")
         return
     end
     if cmd == "note" then
@@ -481,7 +495,7 @@ frame:RegisterEvent("UI_SCALE_CHANGED")
 frame:SetScript("OnEvent", function(self, event)
     if event == "PLAYER_LOGIN" then
         Print("Loaded. Type /grok to open the chat window.")
-        Print("Commands: /grok weekly | gear | note | debug | clear")
+        Print("Commands: /grok weekly | gear | map | note | debug | clear")
         CreateChatUI()
     elseif stripFrame then
         stripFrame:SetScale(GetPixelPerfectScale())
