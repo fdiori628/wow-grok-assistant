@@ -12,7 +12,7 @@ local C = WoWGrok_Codec
 
 C.MAGIC1, C.MAGIC2 = 0xC7, 0x1A
 C.BITS = 3
-C.MAX_PAYLOAD = 3200
+C.MAX_PAYLOAD = 6000
 
 function C.Fletcher16(bytes, from, to)
 	local s1, s2 = 0, 0
