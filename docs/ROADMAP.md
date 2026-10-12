@@ -25,6 +25,16 @@
 - [x] Persistent per-character notes (`/grok note`)
 - [ ] Map / route helpers (if feasible under 12.1 restrictions)
 
+## Robustness (post-review)
+- [x] Single-slot reply writes (no overwrite races)
+- [x] Grok CLI 45s timeout
+- [x] Capture process auto-restart
+- [x] Pixel sampling ±1 tolerance
+- [x] Chat history persistence (last 20)
+- [x] `/grok debug` command
+- [x] Notes length limit
+- [x] Raised MAX_PAYLOAD to 6000
+
 ## Notes
 - Primary target: retail 12.1 (Interface 120100)
 - Windowed / borderless mode required for capture
